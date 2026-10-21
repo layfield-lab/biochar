@@ -247,16 +247,16 @@ them:
 
 ## Related
 
-- PR [#20](https://github.com/layfield-lab/Biochar-simulator/pull/20) — depth-1 fix
+- PR [#20](https://github.com/layfield-lab/biochar/pull/20) — depth-1 fix
   (wrong-element mappings); added `tests/test_opls_type_map.py`.
-- PR [#21](https://github.com/layfield-lab/Biochar-simulator/pull/21) — deleted the three
+- PR [#21](https://github.com/layfield-lab/biochar/pull/21) — deleted the three
   hand-copied tables and the unreachable `[ atomtypes ]` fallback.
-- PR [#23](https://github.com/layfield-lab/Biochar-simulator/pull/23) — supplied the
+- PR [#23](https://github.com/layfield-lab/biochar/pull/23) — supplied the
   `CA-S-CA` angle and landed the depth-3 check described here.
-- PR [#25](https://github.com/layfield-lab/Biochar-simulator/pull/25) — reconciled the
+- PR [#25](https://github.com/layfield-lab/biochar/pull/25) — reconciled the
   `feat/ph-protonation` lineage: fixed the carboxyl typing (retiring that gap) and settled
   `NGR -> opls_379`.
-- PR [#26](https://github.com/layfield-lab/Biochar-simulator/pull/26) — gave CI `gromacs-data`,
+- PR [#26](https://github.com/layfield-lab/biochar/pull/26) — gave CI `gromacs-data`,
   so the depth-3 check runs on every PR instead of skipping.
 - Issue #3 — S-doping (thiol/thioether); origin of the types behind the `CA-S-CA` gap.
 - `biochar/constants.py` — `GROMACS_OPLS_TYPE_MAP`, the `SS -> opls_222` note, and
