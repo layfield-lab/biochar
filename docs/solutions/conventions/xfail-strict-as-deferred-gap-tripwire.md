@@ -136,6 +136,6 @@ fixer.
   comment explaining the tripwire so the next deferred gap follows the pattern.
 - `docs/solutions/conventions/verify-opls-types-against-real-forcefield.md` — the check that
   *found* these gaps; this convention is about how you *defer* one it finds.
-- PRs [#25](https://github.com/jolayfield/Biochar-simulator/pull/25) (retired the SS and
-  carboxyl exemptions) and [#27](https://github.com/jolayfield/Biochar-simulator/pull/27)
+- PRs [#25](https://github.com/layfield-lab/Biochar-simulator/pull/25) (retired the SS and
+  carboxyl exemptions) and [#27](https://github.com/layfield-lab/Biochar-simulator/pull/27)
   (retired the pyridinic one).

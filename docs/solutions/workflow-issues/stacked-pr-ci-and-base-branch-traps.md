@@ -124,9 +124,9 @@ stacked PR re-earns this trap, and the only defence is remembering to look.
 
 ## Related
 
-- PRs [#21](https://github.com/jolayfield/Biochar-simulator/pull/21),
-  [#22](https://github.com/jolayfield/Biochar-simulator/pull/22),
-  [#23](https://github.com/jolayfield/Biochar-simulator/pull/23) — the stack this surfaced
+- PRs [#21](https://github.com/layfield-lab/Biochar-simulator/pull/21),
+  [#22](https://github.com/layfield-lab/Biochar-simulator/pull/22),
+  [#23](https://github.com/layfield-lab/Biochar-simulator/pull/23) — the stack this surfaced
   on. #23 was closed by merging #21 with `--delete-branch` and recovered as above.
 - `.github/workflows/ci.yml` — the `branches: [main]` filter that causes it.
 - `docs/solutions/conventions/verify-opls-types-against-real-forcefield.md` — unrelated
