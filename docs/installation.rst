@@ -45,8 +45,8 @@ Clone the repository and install in editable mode with all dev dependencies:
 
 .. code-block:: bash
 
-   git clone https://github.com/jolayfield/Biochar-simulator.git
-   cd Biochar-simulator
+   git clone https://github.com/layfield-lab/biochar.git
+   cd biochar
    pip install -e ".[dev]"
 
 Verify the installation by running the test suite:

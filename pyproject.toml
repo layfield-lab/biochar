@@ -72,9 +72,9 @@ biochar-md-setup = "biochar.cli.md_setup_cli:main"
 biochar-condense = "biochar.cli.condensation_cli:main"
 
 [project.urls]
-Homepage = "https://github.com/jolayfield/Biochar-simulator"
-Repository = "https://github.com/jolayfield/Biochar-simulator"
-"Bug Tracker" = "https://github.com/jolayfield/Biochar-simulator/issues"
+Homepage = "https://github.com/layfield-lab/biochar"
+Repository = "https://github.com/layfield-lab/biochar"
+"Bug Tracker" = "https://github.com/layfield-lab/biochar/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
