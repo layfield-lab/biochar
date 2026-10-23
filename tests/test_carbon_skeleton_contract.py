@@ -68,6 +68,119 @@ class TestGrowthReachesFromAbove:
         )
 
 
+class TestOddSheetsDoNotRunAway:
+    # rq-e8417061
+    # (target, seed, target_h_c): each grew to 228, 936 and 1680 carbons before
+    # the parity step was made to fuse only where the addition is odd.
+    RUNAWAYS = [(150, 3, 0.5), (400, 6, None), (628, 5, None)]
+
+    @pytest.mark.parametrize("target,seed,target_h_c", RUNAWAYS)
+    def test_an_odd_sheet_stays_within_a_ring_or_two(self, target, seed, target_h_c):
+        skeleton = PAHAssembler(seed=seed).generate(target, target_h_c=target_h_c)
+        over = _carbons(skeleton) - target
+        assert 0 <= over <= 8, (
+            f"requested {target} carbons, got {_carbons(skeleton)}; the parity "
+            f"step kept adding hexagons, which cannot change parity"
+        )
+
+
+class TestSeedDependentFailuresAreRetried:
+    # rq-a3c395ed
+    def test_a_growth_that_fails_on_the_callers_seed_is_retried(self):
+        # Seed 2 at 104 carbons closed the compact sheet odd on its own seed
+        # and raised "retrying will not help"; seeds 1 and 3 built fine.
+        skeleton = PAHAssembler(seed=2).generate(104, target_h_c=0.635)
+        assert _carbons(skeleton) >= 104
+
+    # rq-7504e809
+    def test_neighboring_seeds_do_not_share_retries(self):
+        from biochar.pipeline.carbon_skeleton import _MAX_CURVED_BUILD_ATTEMPTS, _sub_seed
+
+        n = _MAX_CURVED_BUILD_ATTEMPTS
+        first = {_sub_seed(1, k) for k in range(n)}
+        second = {_sub_seed(2, k) for k in range(n)}
+        assert not first & second, (
+            f"seeds 1 and 2 retry with shared sub-seeds {first & second}, so a "
+            f"different seed replays the same growth"
+        )
+
+
+WOOD_FRACTIONS = dict(defect_fraction=0.154, heptagon_fraction=0.077)
+
+
+class TestCurvedSheets:
+    # rq-22536e48
+    @pytest.mark.parametrize("seed", [1, 2, 3])
+    def test_no_carbon_has_more_than_three_bonds(self, seed):
+        skeleton = PAHAssembler(seed=seed).generate(256, **WOOD_FRACTIONS)
+        worst = max(a.GetDegree() for a in skeleton.mol.GetAtoms())
+        assert worst <= 3, f"a carbon has {worst} carbon neighbors"
+
+    # rq-8f5204cd
+    @pytest.mark.parametrize("target", [102, 256, 608])
+    def test_wood_sized_curved_sheets_build_on_every_seed(self, target):
+        for seed in (1, 2, 3):
+            skeleton = PAHAssembler(seed=seed).generate(target, **WOOD_FRACTIONS)
+            rings = skeleton.ring_composition
+            assert _carbons(skeleton) >= target
+            assert rings["pentagons"] > 0 and rings["heptagons"] > 0, (
+                f"seed {seed}: a curved request returned rings {rings}"
+            )
+
+    # rq-f1e2eb6a
+    def test_aromaticity_perception_on_a_large_curved_sheet_is_quick(self):
+        """Run in a subprocess: on a bare-bond sheet RDKit does not fail, it
+        runs for minutes, and a test that hangs reports nothing useful.
+
+        The Kekule form comes from a matching, not ``Chem.Kekulize``: RDKit's
+        own kekulization gives up on any sheet this size, flat ones included.
+        """
+        import subprocess
+        import sys
+
+        code = (
+            "import time\n"
+            "import networkx as nx\n"
+            "from rdkit import Chem\n"
+            "from biochar.pipeline.carbon_skeleton import PAHAssembler, _mol_to_graph\n"
+            "sk = PAHAssembler(seed=1).generate(400, defect_fraction=0.154,"
+            " heptagon_fraction=0.077).mol\n"
+            "G = _mol_to_graph(sk)\n"
+            "double = {frozenset(e) for e in nx.max_weight_matching(G, maxcardinality=True)}\n"
+            "rw = Chem.RWMol()\n"
+            "for _ in range(sk.GetNumAtoms()): rw.AddAtom(Chem.Atom(6))\n"
+            "for b in sk.GetBonds():\n"
+            "    i, j = b.GetBeginAtomIdx(), b.GetEndAtomIdx()\n"
+            "    rw.AddBond(i, j, Chem.BondType.DOUBLE if frozenset((i, j)) in double"
+            " else Chem.BondType.SINGLE)\n"
+            "m = rw.GetMol()\n"
+            "f = Chem.SanitizeFlags\n"
+            "Chem.SanitizeMol(m, f.SANITIZE_ALL ^ f.SANITIZE_SETAROMATICITY)\n"
+            "t = time.time()\n"
+            "Chem.SetAromaticity(m, Chem.AromaticityModel.AROMATICITY_RDKIT)\n"
+            "bare = sum(1 for b in m.GetBonds() if b.IsInRing() and not b.GetIsAromatic())\n"
+            "print(time.time() - t, bare)\n"
+        )
+        try:
+            out = subprocess.run(
+                [sys.executable, "-c", code], capture_output=True, text=True, timeout=60
+            )
+        except subprocess.TimeoutExpired:
+            pytest.fail("RDKit aromaticity perception on a 400-C curved sheet ran past 60 s")
+        assert out.returncode == 0, out.stderr[-2000:]
+        elapsed, bare = out.stdout.split()
+        assert int(bare) == 0, f"{bare} ring bonds were left non-aromatic"
+        assert float(elapsed) < 1.0, f"perception took {float(elapsed):.1f} s"
+
+    # rq-5af71ee2
+    def test_a_large_pentagon_only_request_names_the_missing_heptagons(self):
+        from biochar.pipeline.carbon_skeleton import SkeletonError
+
+        with pytest.raises(SkeletonError) as exc:
+            PAHAssembler(seed=1).generate(300, defect_fraction=0.1)
+        assert "heptagon" in str(exc.value), str(exc.value)
+
+
 class TestDefectFractions:
     # rq-c6b675bb
     def test_zero_defect_fraction_gives_a_pure_hexagonal_skeleton(self):
@@ -114,17 +227,17 @@ class TestNoUnrelatedFallback:
 
         message = str(exc.value)
         assert "200" in message, f"the failure does not state the request: {message}"
-        assert "retry" in message.lower(), (
-            f"the failure should say a seed retry will not help, since the "
-            f"compact hex build is deterministic: {message}"
+        # Growth is seed-dependent (rq-4b588285); the message once claimed the
+        # opposite while seeds 1 and 3 succeeded where 2 failed.
+        assert "another seed may succeed" in message, (
+            f"the failure should say a different seed can succeed: {message}"
         )
 
     def test_the_failure_is_catchable_as_a_runtime_error(self, monkeypatch):
         """Subclassing RuntimeError keeps existing handlers working.
 
         workflows.sweep catches bare Exception for non-validation failures and
-        records the point as failed without retrying, which is the right
-        handling for a deterministic one.
+        records the point as failed.
         """
         from biochar.pipeline.carbon_skeleton import SkeletonError
 
