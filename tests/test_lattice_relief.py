@@ -9,6 +9,7 @@ flat path builds a sheet: carbons on the lattice, each H 1.09 A out along the
 bisector of its carbon's two ring neighbours.
 """
 
+import random
 import re
 
 import numpy as np
@@ -23,12 +24,15 @@ from biochar.pipeline.biochar_generator import (
     GeneratorConfig,
     ValidationError,
 )
+from biochar.pipeline.carbon_skeleton import PAHAssembler
 from biochar.pipeline.geometry_3d import (
     CoordinateGenerator,
     GeometryValidator,
     _clash_pairs,
+    _substituent_groups,
     _tilt_crowded_substituents,
 )
+from biochar.pipeline.heteroatom_assignment import attach_aliphatic_carbons
 
 LATTICE_BOND = 1.42
 
@@ -255,3 +259,194 @@ class TestStrictValidationOnLargeSheets:
                 )
             except ValidationError as e:
                 assert "Steric clash" not in str(e), f"seed {seed}: {str(e)[:300]}"
+
+
+def _methyl_decorated_sheet(n_methyls=6, seed=0):
+    """A >80-carbon hex-lattice sheet carrying pendant methyls, built the way
+    aliphatic decoration builds one: the methyl carbons have no lattice tag."""
+    core = PAHAssembler(seed=seed).generate(target_num_carbons=100).mol
+    return attach_aliphatic_carbons(core, n_methyls, random.Random(seed))
+
+
+def _angle(a, centre, b):
+    u, v = a - centre, b - centre
+    cos = u @ v / (np.linalg.norm(u) * np.linalg.norm(v))
+    return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
+
+
+class TestDecoratedSheetsKeepTheLattice:
+    # rq-d6926052 -- a decorated sheet stays on the lattice
+    # rq-06dfeecf
+    def test_methyl_decorated_sheet_takes_the_hex_lattice_path(self):
+        mol = _methyl_decorated_sheet()
+        untagged = [a.GetIdx() for a in mol.GetAtoms()
+                    if a.GetAtomicNum() == 6 and not a.HasProp("init_x")]
+        assert len(untagged) == 6, "fixture must carry untagged methyl carbons"
+
+        gen = CoordinateGenerator(seed=0)
+        out, coords = gen.generate_3d_coordinates(mol)
+
+        assert gen.used_hex_lattice
+        for atom in out.GetAtoms():
+            if atom.HasProp("init_x"):
+                lattice = (atom.GetDoubleProp("init_x"), atom.GetDoubleProp("init_y"))
+                assert coords[atom.GetIdx()][:2] == pytest.approx(lattice, abs=1e-6)
+
+    # rq-91985117
+    def test_methyls_are_placed_tetrahedrally(self):
+        out, coords = CoordinateGenerator(seed=0).generate_3d_coordinates(
+            _methyl_decorated_sheet()
+        )
+        assert GeometryValidator._validate_bond_lengths(out, coords) == []
+        methyls = [a for a in out.GetAtoms()
+                   if a.GetAtomicNum() == 6 and not a.HasProp("init_x")]
+        for c in methyls:
+            ci = c.GetIdx()
+            nbrs = [n.GetIdx() for n in c.GetNeighbors()]
+            hs = [n for n in nbrs if out.GetAtomWithIdx(n).GetAtomicNum() == 1]
+            assert len(hs) == 3
+            for k, i in enumerate(nbrs):
+                for j in nbrs[k + 1:]:
+                    assert _angle(coords[i], coords[ci], coords[j]) == pytest.approx(109.47, abs=2.0)
+
+    # rq-d6926052 -- a phenolic C-O keeps 1.36 Angstrom; the embedding's
+    # de-aromatised working copy must not decide it is aliphatic.
+    def test_phenolic_oxygen_keeps_its_bond_length(self):
+        sheet = Chem.RWMol(_methyl_decorated_sheet())
+        edge = [a.GetIdx() for a in sheet.GetAtoms() if a.GetIsAromatic() and a.GetDegree() < 3]
+        for site in edge[:3]:
+            sheet.AddBond(site, sheet.AddAtom(Chem.Atom(8)), Chem.BondType.SINGLE)
+        mol = sheet.GetMol()
+        mol.UpdatePropertyCache(strict=False)
+
+        gen = CoordinateGenerator(seed=0)
+        out, coords = gen.generate_3d_coordinates(mol)
+
+        assert gen.used_hex_lattice
+        lengths = [
+            np.linalg.norm(coords[b.GetBeginAtomIdx()] - coords[b.GetEndAtomIdx()])
+            for b in out.GetBonds()
+            if {b.GetBeginAtom().GetAtomicNum(), b.GetEndAtom().GetAtomicNum()} == {6, 8}
+        ]
+        assert len(lengths) == 3
+        assert lengths == pytest.approx([1.36] * 3, abs=1e-6)
+
+    # rq-91985117 -- deeper off-lattice groups: -CH2-OH and a carboxyl
+    def test_hydroxymethyl_and_carboxyl_keep_their_angles(self):
+        sheet = Chem.RWMol(_methyl_decorated_sheet())
+        methyl = next(a.GetIdx() for a in sheet.GetAtoms()
+                      if a.GetAtomicNum() == 6 and not a.HasProp("init_x"))
+        hydroxyl_o = sheet.AddAtom(Chem.Atom(8))
+        sheet.AddBond(methyl, hydroxyl_o, Chem.BondType.SINGLE)
+        site = next(a.GetIdx() for a in sheet.GetAtoms() if a.GetIsAromatic() and a.GetDegree() < 3)
+        acid_c = sheet.AddAtom(Chem.Atom(6))
+        sheet.AddBond(site, acid_c, Chem.BondType.SINGLE)
+        acid_o = [sheet.AddAtom(Chem.Atom(8)) for _ in range(2)]
+        sheet.AddBond(acid_c, acid_o[0], Chem.BondType.DOUBLE)
+        sheet.AddBond(acid_c, acid_o[1], Chem.BondType.SINGLE)
+        mol = sheet.GetMol()
+        mol.UpdatePropertyCache(strict=False)
+
+        gen = CoordinateGenerator(seed=0)
+        out, coords = gen.generate_3d_coordinates(mol)
+
+        assert gen.used_hex_lattice
+        assert GeometryValidator._validate_bond_lengths(out, coords) == []
+        ring_c = next(n.GetIdx() for n in out.GetAtomWithIdx(methyl).GetNeighbors() if n.IsInRing())
+        assert _angle(coords[ring_c], coords[methyl], coords[hydroxyl_o]) == pytest.approx(109.47, abs=2.0)
+        assert _angle(coords[acid_o[0]], coords[acid_c], coords[acid_o[1]]) == pytest.approx(120.0, abs=2.0)
+        assert _angle(coords[site], coords[acid_c], coords[acid_o[0]]) == pytest.approx(120.0, abs=2.0)
+        # Not asserted: the C-O-H angle. Crowded hydroxyl hydrogens are moved
+        # by _optimize_h_positions, whose z offsets bend it (a separate defect).
+
+    # rq-91985117
+    def test_a_methyl_is_a_substituent_the_relief_can_tilt(self):
+        out, _coords = CoordinateGenerator(seed=0).generate_3d_coordinates(
+            _methyl_decorated_sheet()
+        )
+        owned = {a for members in _substituent_groups(out).values() for a in members}
+        for c in out.GetAtoms():
+            if c.GetAtomicNum() == 6 and not c.HasProp("init_x"):
+                assert c.GetIdx() in owned
+                assert all(n.GetIdx() in owned for n in c.GetNeighbors()
+                           if n.GetAtomicNum() == 1)
+
+
+class TestStrictValidationOnDecoratedSheets:
+    # rq-d0935f4f -- issue #66: these seeds reach H/C 0.35 at 150 C through
+    # methyl decoration, and used to fall off the lattice onto Kamada-Kawai.
+    @pytest.mark.parametrize("seed", [2, 3, 5])
+    def test_no_steric_clash_failures_at_150_carbons(self, monkeypatch, seed):
+        try:
+            _generate_on_hex_lattice(
+                monkeypatch, target_num_carbons=150, H_C_ratio=0.35,
+                O_C_ratio=0.0, seed=seed,
+            )
+        except ValidationError as e:
+            assert "Steric clash" not in str(e), f"seed {seed}: {str(e)[:300]}"
+
+
+def _spy_embeddings(monkeypatch):
+    """Record the use_hex_lattice flag of every embedding the generator asks for."""
+    flags = []
+    original = CoordinateGenerator.generate_3d_coordinates
+
+    def spy(self, mol, *args, **kwargs):
+        flags.append(kwargs.get("use_hex_lattice", True))
+        return original(self, mol, *args, **kwargs)
+
+    monkeypatch.setattr(CoordinateGenerator, "generate_3d_coordinates", spy)
+    return flags
+
+
+class TestDecoratedSheetFallback:
+    # rq-ab5203c4
+    @pytest.mark.slow
+    def test_an_unclearable_decorated_sheet_keeps_the_better_embedding(self, monkeypatch):
+        # 150 C at H/C 0.6 is heavily methylated; the relief leaves clashes
+        # at doubly decorated coves.
+        flags = _spy_embeddings(monkeypatch)
+        relieved, free = {}, {}
+        relieve = CoordinateGenerator.relieve_lattice_crowding
+        refine = BiocharGenerator._refine_free_embedding
+
+        def relieve_spy(self, mol, coords):
+            out = relieve(self, mol, coords)
+            relieved["errors"] = GeometryValidator.validate_geometry(mol, out)[1]
+            return out
+
+        def refine_spy(self, generator, mol, coords):
+            out = refine(self, generator, mol, coords)
+            free["errors"] = out[2]
+            return out
+
+        monkeypatch.setattr(CoordinateGenerator, "relieve_lattice_crowding", relieve_spy)
+        monkeypatch.setattr(BiocharGenerator, "_refine_free_embedding", refine_spy)
+        mol, coords, _ = BiocharGenerator(GeneratorConfig(
+            target_num_carbons=150, H_C_ratio=0.6, O_C_ratio=0.0, seed=4, strict=False,
+        )).generate()
+
+        assert flags == [True, False]
+        assert any("Steric clash" in e for e in relieved["errors"])
+        final = GeometryValidator.validate_geometry(mol, coords)[1]
+        assert len(final) == min(len(relieved["errors"]), len(free["errors"]))
+
+    # rq-0cacf78d
+    def test_an_undecorated_sheet_is_embedded_once(self, monkeypatch):
+        # Relief is stubbed out so clashes are certain to remain: whether the
+        # real relief clears a given seed differs between RDKit/NumPy builds.
+        flags = _spy_embeddings(monkeypatch)
+        seen = {}
+
+        def no_relief(self, mol, coords):
+            seen["offlattice"] = self.offlattice_carbons
+            seen["clashes"] = len(_clash_pairs(mol, coords))
+            return coords
+
+        monkeypatch.setattr(CoordinateGenerator, "relieve_lattice_crowding", no_relief)
+        BiocharGenerator(GeneratorConfig(
+            target_num_carbons=150, H_C_ratio=0.35, O_C_ratio=0.0, seed=4, strict=False,
+        )).generate()
+        # The premise, or this test passes without reaching the gated branch.
+        assert seen["offlattice"] == 0 and seen["clashes"] > 0
+        assert flags == [True]
