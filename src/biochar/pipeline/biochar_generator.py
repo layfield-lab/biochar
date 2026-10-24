@@ -17,11 +17,6 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Rebuilds of the compact core while the aromatic/methyl split settles (see
-# _generate_carbon_skeleton). Each re-plans from the ceiling of the core just
-# built; two or three usually agree, and the closest-to-target build is kept.
-_CORE_SPLIT_ITERATIONS = 4
-
 from .carbon_skeleton import PAHAssembler, SkeletonValidator, _edge_carbon_fraction
 from .heteroatom_assignment import (
     OxygenAssigner,
@@ -41,6 +36,11 @@ from .opls_typing import AtomTyper, ChargeAssigner
 from ..export.gromacs_export import GromacsExporter
 from .validation import ValidationEngine
 from ..constants import MIN_BUILDABLE_AROMATICITY
+
+# Rebuilds of the compact core while the aromatic/methyl split settles (see
+# _generate_carbon_skeleton). Each re-plans from the ceiling of the core just
+# built; two or three usually agree, and the closest-to-target build is kept.
+_CORE_SPLIT_ITERATIONS = 4
 
 
 @dataclass
@@ -739,11 +739,12 @@ class BiocharGenerator:
             # The split above is estimated from the first pass's ceiling, but
             # that pass was elongated and the core is compact, with a lower
             # ceiling -- so the core needs more methyls than were budgeted, and
-            # total C overshot N (104 requested, 117-120 built). Re-plan from
+            # total C overshot N. Re-plan from
             # the ceiling of the core actually built until the total is within
             # size_tolerance, keeping the build that best meets the H/C and then N.
             n_est = split(ceiling)
             best = None
+            tried = set()
             for _ in range(_CORE_SPLIT_ITERATIONS):
                 core = assembler.generate(
                     N - n_est,
@@ -764,26 +765,28 @@ class BiocharGenerator:
                 hc = (E + 2 * m) / (Ca + m) if Ca + m else 0.0
                 score = (max(0.0, abs(hc - r) - 0.02), abs(Ca + m - N))
                 if best is None or score < best[0]:
-                    best = (score, core, Ca, E, m)
-                # A first plan already within size tolerance is kept as it
-                # was: re-planning is for the overshoot, and a different
-                # split changes which structure the comparison below picks.
-                if abs(Ca + m - N) <= self.config.size_tolerance * N:
+                    best = (score, core, Ca, E, m, hc)
+                # Re-planning is for the overshoot only. A plan within
+                # tolerance is kept as it was (a different split changes which
+                # structure the comparison below picks), and so is one that
+                # falls short: that happens when m is capped at the edge sites,
+                # and a smaller core would only fall shorter.
+                if Ca + m - N <= self.config.size_tolerance * N:
                     break
-                n_next = split(E / Ca) if Ca else n_est
-                if n_next == n_est:
+                # The core build is deterministic for a given size, so a
+                # plan seen before would only rebuild the same core.
+                tried.add(n_est)
+                n_est = split(E / Ca) if Ca else n_est
+                if n_est in tried:
                     break
-                n_est = n_next
-            _, core, Ca, E, m = best
+            _, core, Ca, E, m, cand_hc = best
             if m > 0:
                 rng = random.Random(self.config.seed)
                 decorated = attach_aliphatic_carbons(core.mol, m, rng)
                 cand = PAHAssembler._make_skeleton(decorated)
-                cand_hc = (E + 2 * m) / (Ca + m)
             else:
                 # Core already meets/exceeds the target on its own.
                 cand = core
-                cand_hc = (E / Ca) if Ca else 0.0
             # Keep the decorated candidate only if it lands closer to the target
             # than the first-pass aromatic skeleton.  A benzene-grown "compact"
             # core is not always minimally condensed, so it can overshoot; in

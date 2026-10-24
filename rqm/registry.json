@@ -1801,7 +1801,7 @@
     "type": "scenario"
   },
   "rq-65ff7e4e": {
-    "decl": "Scenario: Total carbons stay within ten percent of the request",
+    "decl": "Scenario: Methyl decoration never takes the size more than ten percent over the request",
     "file": "generation-config",
     "refs": [
       {
@@ -1809,7 +1809,7 @@
         "kind": "code"
       }
     ],
-    "title": "Total carbons stay within ten percent of the request",
+    "title": "Methyl decoration never takes the size more than ten percent over the request",
     "type": "scenario"
   },
   "rq-6659180d": {

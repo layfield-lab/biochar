@@ -107,14 +107,18 @@ Wood et al.'s BC400 composition (104 carbons, H/C 0.635) came back with 117-120.
 re-planned from the core actually built, and among the builds tried the one that best meets the
 H/C, then the size, is kept: the H/C is what this path exists for.
 
+The promise is one-sided. Each methyl needs an edge site, so at a high enough H/C (around 1.0 at
+150 carbons) the methyls run out of sites and the structure falls short of the requested size
+instead. Re-planning is not attempted then, since a smaller core only has fewer sites.
+
 ```gherkin
 Feature: Keep the requested size while reaching a high H/C
 
   @rq-65ff7e4e
-  Scenario: Total carbons stay within ten percent of the request
+  Scenario: Methyl decoration never takes the size more than ten percent over the request
     Given a target H/C above what an aromatic sheet of the requested size can carry
     When a structure is generated across several seeds
-    Then its total carbon count is within ten percent of the request
+    Then its total carbon count is no more than ten percent over the request
 ```
 
 ## Impossible Requests Are Refused at Construction <!-- rq-31553668 -->
