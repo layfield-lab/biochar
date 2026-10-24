@@ -19,7 +19,9 @@ by user request.
   followed by MMFF94 relaxation.
 - Molecules of **more than 80 heavy atoms** use a 2D-first path: compute the flat aromatic
   layout — the hex-lattice positions the skeleton builder tagged, or a Kamada–Kawai layout when
-  any carbon is untagged — and promote it to 3D at `z = 0`. The Kamada–Kawai layout is then
+  any *ring* carbon is untagged — and promote it to 3D at `z = 0`. Untagged atoms outside the
+  rings are placed from their parent and do not take a sheet off the lattice (see *A Decorated
+  Sheet Stays on the Lattice* below). The Kamada–Kawai layout is then
   force-field minimised. The hex lattice is not minimised: it is already exact, and the only
   relief it gets is local (see *Hex-Lattice Sheets Keep Their Lattice* below).
 
@@ -241,6 +243,72 @@ Feature: Keep the hex lattice, relieving only what a flat lattice gets wrong
     Given a strict configuration of 100 carbons whose composition target is reachable
     When structures are generated across several seeds
     Then none fails validation on a steric clash
+```
+
+### A Decorated Sheet Stays on the Lattice <!-- rq-d6926052 -->
+
+Aliphatic decoration — pendant methyls, and the `-CH2-OH` an O/C target can spill onto them —
+adds carbons the skeleton builder never tagged, and so does a carboxyl group. The lattice path
+once required *every* carbon to be tagged, so a single methyl sent the whole sheet to the
+Kamada–Kawai layout and past this relief: at 150 C and H/C 0.35, seeds 2, 3 and 5 failed strict
+validation on overlaps up to 0.40 Å inside the floor (issue #66).
+
+The lattice is now kept whenever every **ring** carbon is tagged and every untagged heavy atom
+hangs, through other untagged atoms, off a tagged one. Untagged atoms are placed breadth-first
+from their parent: a ring atom's substituent points radially out, as an oxygen always has; an
+off-lattice atom's children and hydrogens take its tetrahedral (four bonds), trigonal (three) or
+bent (a two-bond oxygen) directions, with the in-plane direction on the side with more room.
+Bond lengths are the bond-order-scaled covalent radii sums the validator expects, except a
+phenolic C–O, which keeps 1.36 Å. Each such group is a substituent the relief can tilt.
+
+The relief cannot clear everything a decorated sheet carries. Methyls on *both* carbons of a cove
+land ~0.2 Å apart, and with `-CH2-OH` arms a rigid tilt leaves overlaps a force field then blows
+apart. A free embedding — Kamada–Kawai plus the clash resolver and force field, every atom
+movable — often clears those. So when the relief leaves a clash on a sheet with off-lattice
+carbons, the generator also embeds it freely and keeps whichever result has fewer geometry
+errors, the lattice one on a tie. Neither path is better everywhere: across 100–150 C, H/C
+0.35–0.6, O/C 0–0.3 and five seeds, the lattice won at light decoration and the free embedding at
+heavy. Keeping the better of the two took the clash-free count from 73 to 77 of 90 and made
+14 points better. One point (150 C, 0.35/0.3, seed 5) went from 26 to 30 clashes: the free
+embedding had fewer clashes but seven ring bonds stretched to ~2 Å, which is why the comparison
+counts every geometry error, not just clashes. A sheet with no off-lattice carbon never embeds
+twice.
+
+```gherkin
+Feature: Keep a decorated sheet on the lattice
+
+  @rq-06dfeecf
+  Scenario: A sheet with pendant methyls takes the hex-lattice path
+    Given a hex-lattice sheet of more than 80 heavy atoms carrying untagged pendant methyls
+    When coordinates are generated
+    Then the hex-lattice path is used
+    And every tagged atom sits at its lattice position
+
+  @rq-91985117
+  Scenario: An off-lattice carbon is tetrahedral and can be tilted
+    Given a hex-lattice sheet carrying pendant methyls
+    When coordinates are generated
+    Then every methyl has three hydrogens at tetrahedral angles and no bond-length error
+    And each methyl and its hydrogens form a substituent the relief can tilt
+
+  @rq-d0935f4f
+  Scenario: Lightly decorated sheets pass strict validation
+    Given a strict configuration of 150 carbons at H/C 0.35 that reaches its target by methyl decoration
+    When structures are generated for seeds 2, 3 and 5
+    Then none fails validation on a steric clash
+
+  @rq-ab5203c4
+  Scenario: A decorated sheet the relief cannot clear keeps the better embedding
+    Given a hex-lattice sheet with off-lattice carbons whose relief leaves a steric clash
+    When the generator finishes geometry
+    Then it also embeds the sheet freely
+    And keeps whichever embedding has fewer geometry errors
+
+  @rq-0cacf78d
+  Scenario: An undecorated sheet is embedded once
+    Given a hex-lattice sheet with no off-lattice carbon whose relief leaves a steric clash
+    When the generator finishes geometry
+    Then no free embedding is attempted
 ```
 
 ### A hydroxyl hydrogen keeps its bond angle <!-- rq-7515b128 -->

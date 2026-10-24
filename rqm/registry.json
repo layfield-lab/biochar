@@ -49,6 +49,14 @@
     "title": "Every mapped type names the right element",
     "type": "scenario"
   },
+  "rq-04f1b337": {
+    "decl": "## Linkers Type and Simulate as Existing OPLS-AA Chemistry",
+    "file": "linked-units",
+    "level": 2,
+    "refs": [],
+    "title": "Linkers Type and Simulate as Existing OPLS-AA Chemistry",
+    "type": "section"
+  },
   "rq-0569cb45": {
     "decl": "## Per-Sheet Protonation Consumes a Seed Range",
     "file": "surface-stacking",
@@ -64,6 +72,18 @@
     "refs": [],
     "title": "The Module Writes Files and Nothing Else",
     "type": "section"
+  },
+  "rq-06dfeecf": {
+    "decl": "Scenario: A sheet with pendant methyls takes the hex-lattice path",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A sheet with pendant methyls takes the hex-lattice path",
+    "type": "scenario"
   },
   "rq-070a2c21": {
     "decl": "Scenario: Pyrrolic nitrogen is still placed where the sites qualify",
@@ -165,6 +185,20 @@
     "title": "The timestep halves above the lowest anchor",
     "type": "scenario"
   },
+  "rq-0a635e0c": {
+    "decl": "- `GeneratorConfig(linked_units: bool = False, num_units: Optional[int] = None, linker_mix: Optional[Dict[str, float]] = None, ...)`",
+    "file": "linked-units",
+    "refs": [],
+    "title": "GeneratorConfig",
+    "type": "api-item"
+  },
+  "rq-0b5952bf": {
+    "decl": "- `embed_linked_units(mol, seed) -> Tuple[Chem.Mol, np.ndarray]`",
+    "file": "linked-units",
+    "refs": [],
+    "title": "embed_linked_units",
+    "type": "api-item"
+  },
   "rq-0be99a80": {
     "decl": "- `QMChargeError`",
     "file": "charge-backends",
@@ -204,6 +238,18 @@
       }
     ],
     "title": "A positive defect fraction produces pentagons",
+    "type": "scenario"
+  },
+  "rq-0cacf78d": {
+    "decl": "Scenario: An undecorated sheet is embedded once",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An undecorated sheet is embedded once",
     "type": "scenario"
   },
   "rq-0cf2e5d4": {
@@ -467,6 +513,18 @@
     "title": "A Seed Retry Is a Variance Remedy, Not a Repair",
     "type": "section"
   },
+  "rq-1ca67e8f": {
+    "decl": "Scenario: An explicit unit count and linker mix override the band",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An explicit unit count and linker mix override the band",
+    "type": "scenario"
+  },
   "rq-1e274fe6": {
     "decl": "Scenario: A model fitted by a different scikit-learn is reported",
     "file": "charge-backends",
@@ -559,6 +617,25 @@
     ],
     "title": "Every carbon in a curved sheet has at most three bonds",
     "type": "scenario"
+  },
+  "rq-227a0ddd": {
+    "decl": "Scenario: A BC400-like request passes strict validation",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A BC400-like request passes strict validation",
+    "type": "scenario"
+  },
+  "rq-22bc4f3c": {
+    "decl": "- `plan_units(config, rng) -> UnitPlan`",
+    "file": "linked-units",
+    "refs": [],
+    "title": "plan_units",
+    "type": "api-item"
   },
   "rq-22fa0ea0": {
     "decl": "## The 1.14 Factor Was Derived for Neutral Molecules",
@@ -658,6 +735,18 @@
     "refs": [],
     "title": "Embedding Returns the Molecule It Was Given, Carrying the Coordinates It Found",
     "type": "section"
+  },
+  "rq-2b213b2e": {
+    "decl": "Scenario: The structure has one ring system per unit",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "The structure has one ring system per unit",
+    "type": "scenario"
   },
   "rq-2b6f2c93": {
     "decl": "Scenario: A manifest yielding no run directories exits non-zero",
@@ -990,6 +1079,18 @@
     "title": "Every ion species is placed against the coordinates the previous species produced",
     "type": "scenario"
   },
+  "rq-3a47b3fb": {
+    "decl": "Scenario: A linked structure embeds without clashes or bond-length errors",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A linked structure embeds without clashes or bond-length errors",
+    "type": "scenario"
+  },
   "rq-3a97bd4a": {
     "decl": "Scenario: The final equilibration is always two femtoseconds",
     "file": "condensation-annealing",
@@ -1098,6 +1199,18 @@
     "title": "Kekulization failure does not change any atom type",
     "type": "scenario"
   },
+  "rq-4115991e": {
+    "decl": "Scenario: A BC600-like request passes strict validation",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A BC600-like request passes strict validation",
+    "type": "scenario"
+  },
   "rq-4156245d": {
     "decl": "Scenario: A molecule name fixed across the sweep is refused",
     "file": "parameter-sweep",
@@ -1128,6 +1241,18 @@
     "refs": [],
     "title": "CarbonSkeleton",
     "type": "api-item"
+  },
+  "rq-420e40ce": {
+    "decl": "Scenario: The result carries the census",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "The result carries the census",
+    "type": "scenario"
   },
   "rq-43924feb": {
     "decl": "Scenario: The manifest names the package version that wrote it",
@@ -1237,6 +1362,13 @@
     ],
     "title": "Hex-lattice structures keep their lattice",
     "type": "scenario"
+  },
+  "rq-4a66d28f": {
+    "decl": "- `build_linked_skeleton(config, plan, aliphatic_enabled) -> Tuple[CarbonSkeleton, LinkedSkeleton]`",
+    "file": "linked-units",
+    "refs": [],
+    "title": "build_linked_skeleton",
+    "type": "api-item"
   },
   "rq-4a9e69bb": {
     "decl": "## Feature API",
@@ -1462,6 +1594,18 @@
     "title": "A high-oxygen structure validates without falling back",
     "type": "scenario"
   },
+  "rq-52b8fb84": {
+    "decl": "Scenario: Linked-unit parameters without the opt-in are refused",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Linked-unit parameters without the opt-in are refused",
+    "type": "scenario"
+  },
   "rq-53200bd1": {
     "decl": "## Every Repeat Runs the Full Chain",
     "file": "condensation-annealing",
@@ -1609,6 +1753,13 @@
     ],
     "title": "A manifest yielding some run directories succeeds",
     "type": "scenario"
+  },
+  "rq-5a19bf9b": {
+    "decl": "# Feature: Linked Multi-Unit Structures",
+    "file": "linked-units",
+    "refs": [],
+    "title": "Feature: Linked Multi-Unit Structures",
+    "type": "file"
   },
   "rq-5af71ee2": {
     "decl": "Scenario: A large pentagon-only request is refused with the reason",
@@ -1882,6 +2033,18 @@
     "title": "An overlap too short even for a hydrogen bond is still a clash",
     "type": "scenario"
   },
+  "rq-6d4235f9": {
+    "decl": "Scenario: Every unit stays flat",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Every unit stays flat",
+    "type": "scenario"
+  },
   "rq-6d766a3c": {
     "decl": "## Every Violation Is Named",
     "file": "valence-validation",
@@ -1924,6 +2087,18 @@
     "refs": [],
     "title": "setup_one_structure",
     "type": "api-item"
+  },
+  "rq-6f9371cd": {
+    "decl": "Scenario: Each linker type builds its motif",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Each linker type builds its motif",
+    "type": "scenario"
   },
   "rq-7081e03f": {
     "decl": "- `PointResult`",
@@ -1978,6 +2153,18 @@
       }
     ],
     "title": "Titration does not disturb the caller's random stream",
+    "type": "scenario"
+  },
+  "rq-73fdab80": {
+    "decl": "Scenario: The topology headers name the units and links",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "The topology headers name the units and links",
     "type": "scenario"
   },
   "rq-7504e809": {
@@ -2048,6 +2235,18 @@
     "refs": [],
     "title": "Feature API",
     "type": "section"
+  },
+  "rq-7705e753": {
+    "decl": "Scenario: An explicit bridging group does not merge units",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An explicit bridging group does not merge units",
+    "type": "scenario"
   },
   "rq-7709e5f5": {
     "decl": "## Typing Must Not Depend on Molecule Size",
@@ -2121,6 +2320,14 @@
     "level": 2,
     "refs": [],
     "title": "The Annealing Schedule Is the Published One",
+    "type": "section"
+  },
+  "rq-7cee9ec6": {
+    "decl": "## Unit Count and Linkers Follow Temperature",
+    "file": "linked-units",
+    "level": 2,
+    "refs": [],
+    "title": "Unit Count and Linkers Follow Temperature",
     "type": "section"
   },
   "rq-7d3e9432": {
@@ -2300,6 +2507,14 @@
     "title": "SkeletonValidator",
     "type": "api-item"
   },
+  "rq-84076187": {
+    "decl": "## Units Stay Flat and Links Rotate",
+    "file": "linked-units",
+    "level": 2,
+    "refs": [],
+    "title": "Units Stay Flat and Links Rotate",
+    "type": "section"
+  },
   "rq-8410a38d": {
     "decl": "Scenario: A suppressed warning is named where it is allowed",
     "file": "condensation-annealing",
@@ -2310,6 +2525,18 @@
       }
     ],
     "title": "A suppressed warning is named where it is allowed",
+    "type": "scenario"
+  },
+  "rq-85b48c1e": {
+    "decl": "Scenario: A temperature-derived count that cannot reach the target H/C shrinks",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A temperature-derived count that cannot reach the target H/C shrinks",
     "type": "scenario"
   },
   "rq-85bcfa59": {
@@ -2470,6 +2697,18 @@
     "title": "Wood-sized curved sheets build on every seed",
     "type": "scenario"
   },
+  "rq-8ff54b34": {
+    "decl": "Scenario: Linker oxygen counts toward the O/C target",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Linker oxygen counts toward the O/C target",
+    "type": "scenario"
+  },
   "rq-90382d04": {
     "decl": "Scenario: An explicitly requested ratio wins over the temperature-derived one",
     "file": "generation-config",
@@ -2489,6 +2728,18 @@
     "refs": [],
     "title": "The Supplementary Angle Table Is Narrowly Scoped",
     "type": "section"
+  },
+  "rq-91985117": {
+    "decl": "Scenario: An off-lattice carbon is tetrahedral and can be tilted",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An off-lattice carbon is tetrahedral and can be tilted",
+    "type": "scenario"
   },
   "rq-92c69795": {
     "decl": "## Export",
@@ -2561,6 +2812,14 @@
     ],
     "title": "An aromatic bond is weighed as one bond",
     "type": "scenario"
+  },
+  "rq-9612965b": {
+    "decl": "## Composition Is Judged as for a Single Sheet",
+    "file": "linked-units",
+    "level": 2,
+    "refs": [],
+    "title": "Composition Is Judged as for a Single Sheet",
+    "type": "section"
   },
   "rq-997c1640": {
     "decl": "Scenario: The timestep drops with the schedule it belongs to",
@@ -2656,6 +2915,14 @@
     ],
     "title": "An unattainable H/C is refused at construction, not at generation",
     "type": "scenario"
+  },
+  "rq-9b18de79": {
+    "decl": "## The Structure Is the Architecture Requested",
+    "file": "linked-units",
+    "level": 2,
+    "refs": [],
+    "title": "The Structure Is the Architecture Requested",
+    "type": "section"
   },
   "rq-9ba33460": {
     "decl": "Scenario: Each anchored heat-treatment temperature returns its published pair",
@@ -2986,6 +3253,18 @@
     "title": "Carboxyl and Phenolic Oxygens Are Different Types",
     "type": "section"
   },
+  "rq-a7ae7f39": {
+    "decl": "Scenario: Linker atoms take their OPLS-AA types",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Linker atoms take their OPLS-AA types",
+    "type": "scenario"
+  },
   "rq-a802935e": {
     "decl": "- `ValenceValidator.get_valence_info(mol, atom_idx) -> ValenceInfo`",
     "file": "valence-validation",
@@ -3019,6 +3298,30 @@
       }
     ],
     "title": "A pH outside the meaningful range is refused",
+    "type": "scenario"
+  },
+  "rq-a9db6c13": {
+    "decl": "Scenario: The embedding is reproducible",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "The embedding is reproducible",
+    "type": "scenario"
+  },
+  "rq-ab5203c4": {
+    "decl": "Scenario: A decorated sheet the relief cannot clear keeps the better embedding",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A decorated sheet the relief cannot clear keeps the better embedding",
     "type": "scenario"
   },
   "rq-ab986122": {
@@ -3218,6 +3521,18 @@
     "title": "CompositionResult",
     "type": "api-item"
   },
+  "rq-b5d5c316": {
+    "decl": "Scenario: A request that does not opt in builds what it built before",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_default_path_baseline.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A request that does not opt in builds what it built before",
+    "type": "scenario"
+  },
   "rq-b6522656": {
     "decl": "Scenario: A temperature outside a feedstock's support falls back visibly",
     "file": "temperature-model",
@@ -3264,6 +3579,18 @@
       }
     ],
     "title": "The assembler takes no aromaticity argument",
+    "type": "scenario"
+  },
+  "rq-b7b7c2cd": {
+    "decl": "Scenario: Linker carbons are never oxygenated",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Linker carbons are never oxygenated",
     "type": "scenario"
   },
   "rq-b7d22b5f": {
@@ -3517,6 +3844,14 @@
     ],
     "title": "The refiner reports the bundled model when it loaded",
     "type": "scenario"
+  },
+  "rq-c23659e6": {
+    "decl": "## Feature API",
+    "file": "linked-units",
+    "level": 2,
+    "refs": [],
+    "title": "Feature API",
+    "type": "section"
   },
   "rq-c2463a78": {
     "decl": "## Clash Detection",
@@ -3775,6 +4110,18 @@
     "title": "SurfaceConfig",
     "type": "api-item"
   },
+  "rq-d0935f4f": {
+    "decl": "Scenario: Lightly decorated sheets pass strict validation",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Lightly decorated sheets pass strict validation",
+    "type": "scenario"
+  },
   "rq-d32ee60c": {
     "decl": "## A Suppressed grompp Warning Is Named",
     "file": "condensation-annealing",
@@ -3831,6 +4178,19 @@
     "title": "A failure that is not a validation failure is not retried",
     "type": "scenario"
   },
+  "rq-d6926052": {
+    "decl": "### A Decorated Sheet Stays on the Lattice",
+    "file": "geometry-embedding",
+    "level": 3,
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A Decorated Sheet Stays on the Lattice",
+    "type": "section"
+  },
   "rq-d6aaeb81": {
     "decl": "## Questionable Combinations Warn",
     "file": "generation-config",
@@ -3838,6 +4198,18 @@
     "refs": [],
     "title": "Questionable Combinations Warn",
     "type": "section"
+  },
+  "rq-d9b926a8": {
+    "decl": "Scenario: At 700 degrees C and above the fused sheet is built unchanged",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "At 700 degrees C and above the fused sheet is built unchanged",
+    "type": "scenario"
   },
   "rq-da5ef2fc": {
     "decl": "Scenario: Relief opens the cove rather than only moving its hydrogens",
@@ -3873,6 +4245,18 @@
       }
     ],
     "title": "A row that produced no structure files gets no run directory",
+    "type": "scenario"
+  },
+  "rq-dacb8d13": {
+    "decl": "Scenario: Biaryl links are twisted out of plane",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Biaryl links are twisted out of plane",
     "type": "scenario"
   },
   "rq-db4a65a9": {
@@ -3926,6 +4310,14 @@
     "refs": [],
     "title": "ValenceInfo",
     "type": "api-item"
+  },
+  "rq-df3cb704": {
+    "decl": "## The Files Say What Was Built",
+    "file": "linked-units",
+    "level": 2,
+    "refs": [],
+    "title": "The Files Say What Was Built",
+    "type": "section"
   },
   "rq-df4cf342": {
     "decl": "Scenario: A temperature outside the anchors is clamped",
@@ -4061,6 +4453,18 @@
     "title": "A Library Entry That Cannot Be Loaded Is Reported",
     "type": "section"
   },
+  "rq-e72878a2": {
+    "decl": "Scenario: grompp accepts a topology with each linker",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_grompp_smoke.py",
+        "kind": "code"
+      }
+    ],
+    "title": "grompp accepts a topology with each linker",
+    "type": "scenario"
+  },
   "rq-e8417061": {
     "decl": "Scenario: A sheet that closes with an odd count does not keep growing",
     "file": "carbon-skeleton",
@@ -4071,6 +4475,18 @@
       }
     ],
     "title": "A sheet that closes with an odd count does not keep growing",
+    "type": "scenario"
+  },
+  "rq-e918b504": {
+    "decl": "Scenario: The unit count follows the temperature band",
+    "file": "linked-units",
+    "refs": [
+      {
+        "file": "tests/test_multi_unit.py",
+        "kind": "code"
+      }
+    ],
+    "title": "The unit count follows the temperature band",
     "type": "scenario"
   },
   "rq-e9202195": {
@@ -4137,6 +4553,13 @@
     ],
     "title": "A deprotonated oxygen needs no further bond",
     "type": "scenario"
+  },
+  "rq-eb8ad54c": {
+    "decl": "- `LinkedSkeleton`",
+    "file": "linked-units",
+    "refs": [],
+    "title": "LinkedSkeleton",
+    "type": "api-item"
   },
   "rq-ec21c31b": {
     "decl": "Scenario: Setting up a condensation run invokes no external program",
@@ -4291,6 +4714,14 @@
     "level": 2,
     "refs": [],
     "title": "A Target Within the Library Is Met Exactly",
+    "type": "section"
+  },
+  "rq-f8203042": {
+    "decl": "## The Default Path Is Untouched",
+    "file": "linked-units",
+    "level": 2,
+    "refs": [],
+    "title": "The Default Path Is Untouched",
     "type": "section"
   },
   "rq-f88930c4": {
