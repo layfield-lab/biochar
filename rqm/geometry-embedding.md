@@ -188,6 +188,19 @@ kekulise, and the de-aromatised fallback types ring carbons sp³ and folds the s
 field sees a copy with aromatic atoms typed sp². And a perfectly flat start is a saddle point, so
 ring atoms get a small seeded out-of-plane offset.
 
+Two groups that crowd each other must tilt opposite ways. Directions are handed out greedily,
+deepest contact first, so a pair can arrive already sharing one: at a fjord each arm's hydroxyl
+oxygen lands on the *other* arm's carbon, those two contacts are the deepest, and each group gets a
+direction on its own before their O···O contact is reached. Such a pair also tries turning its
+second group the other way. Without this the outcome depended on where every hydroxyl hydrogen
+happened to point, since that decides which contacts come first: rotating those hydrogens
+correctly (rq-7515b128) took one sheet from 0 to 115 clashes and another from 74 to 0 (both
+at 150 C, H/C 0.35, seed 4, measured before #74 stopped the skeleton builder overshooting).
+
+The relaxation is allowed to converge. `LATTICE_RELAX_MAX_ITERATIONS` is a ceiling the minimiser
+usually stops well short of; at 400 it cut descents off with contacts still open (100 C,
+H/C 0.6, seed 1 kept 19 clashes).
+
 A skeleton that is itself malformed — the elongated builder can overshoot its carbon target and
 leave unbonded ring carbons at bond distance — is not repaired here. Relief makes it no worse, but
 may leave it failing.
@@ -243,6 +256,18 @@ Feature: Keep the hex lattice, relieving only what a flat lattice gets wrong
     Given a strict configuration of 100 carbons whose composition target is reachable
     When structures are generated across several seeds
     Then none fails validation on a steric clash
+
+  @rq-7cab77bd
+  Scenario: Two groups crowding each other tilt opposite ways
+    Given two substituents at a fjord, each crowding the other arm's carbon and each other
+    When lattice crowding is relieved
+    Then they turn to opposite sides of the sheet and no longer overlap
+
+  @rq-47354e4f
+  Scenario: The relaxation is not cut off before it converges
+    Given a decorated 100-carbon sheet whose relaxation needs more than 400 iterations
+    When the generator finishes geometry
+    Then no contact in the structure is a steric clash
 ```
 
 ### A Decorated Sheet Stays on the Lattice <!-- rq-d6926052 -->
@@ -323,12 +348,24 @@ A hydrogen on a heteroatom with a single heavy neighbour is placed at
 `HYDROXYL_H_PLACEMENT_ANGLE_DEG` (108.5°) to that bond, in the sheet plane, on the side with more
 room.
 
+A crowded hydroxyl hydrogen is then moved by turning it about the C–O bond, which keeps the angle.
+It used to be translated off that cone — a z offset of up to 0.9 Å, then the bond rescaled — which
+bent C–O–H to 95–135°, and to 178° where the offset cancelled the hydrogen's own out-of-plane
+component and left it on the C–O axis. Across 90 structures (100–150 C, H/C 0.35–0.6, O/C 0–0.3,
+five seeds) 104 of 1,522 hydroxyls were outside 100–120°.
+
 ```gherkin
 Feature: Place hydroxyl hydrogens at a real bond angle
 
   @rq-653a5fd2
   Scenario: A hydroxyl on a large sheet is bent, not linear
     Given a structure on the hex-lattice path carrying hydroxyl groups
+    When coordinates are generated
+    Then every C-O-H angle is between 100 and 120 degrees
+
+  @rq-3e250d24
+  Scenario: A crowded hydroxyl keeps its angle when it is moved
+    Given a decorated hex-lattice sheet whose phenolic and -CH2-OH hydrogens are crowded
     When coordinates are generated
     Then every C-O-H angle is between 100 and 120 degrees
 ```

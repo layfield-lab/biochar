@@ -9,6 +9,7 @@ flat path builds a sheet: carbons on the lattice, each H 1.09 A out along the
 bisector of its carbon's two ring neighbours.
 """
 
+import itertools
 import random
 import re
 
@@ -28,6 +29,7 @@ from biochar.pipeline.carbon_skeleton import PAHAssembler
 from biochar.pipeline.geometry_3d import (
     CoordinateGenerator,
     GeometryValidator,
+    _bent_hydrogen_position,
     _clash_pairs,
     _substituent_groups,
     _tilt_crowded_substituents,
@@ -356,8 +358,7 @@ class TestDecoratedSheetsKeepTheLattice:
         assert _angle(coords[ring_c], coords[methyl], coords[hydroxyl_o]) == pytest.approx(109.47, abs=2.0)
         assert _angle(coords[acid_o[0]], coords[acid_c], coords[acid_o[1]]) == pytest.approx(120.0, abs=2.0)
         assert _angle(coords[site], coords[acid_c], coords[acid_o[0]]) == pytest.approx(120.0, abs=2.0)
-        # Not asserted: the C-O-H angle. Crowded hydroxyl hydrogens are moved
-        # by _optimize_h_positions, whose z offsets bend it (a separate defect).
+        # The C-O-H angle of a crowded -CH2-OH is TestCrowdedHydroxyls' job.
 
     # rq-91985117
     def test_a_methyl_is_a_substituent_the_relief_can_tilt(self):
@@ -370,6 +371,145 @@ class TestDecoratedSheetsKeepTheLattice:
                 assert c.GetIdx() in owned
                 assert all(n.GetIdx() in owned for n in c.GetNeighbors()
                            if n.GetAtomicNum() == 1)
+
+
+def _hydroxylated_decorated_sheet():
+    """The methyl-decorated sheet with every methyl turned into -CH2-OH and an
+    OH on every free edge carbon: crowded enough that some of each kind of
+    hydroxyl hydrogen has to be moved."""
+    sheet = Chem.RWMol(_methyl_decorated_sheet())
+    methyls = [a.GetIdx() for a in sheet.GetAtoms()
+               if a.GetAtomicNum() == 6 and not a.HasProp("init_x")]
+    edge = [a.GetIdx() for a in sheet.GetAtoms() if a.GetIsAromatic() and a.GetDegree() < 3]
+    for site in methyls + edge:
+        sheet.AddBond(site, sheet.AddAtom(Chem.Atom(8)), Chem.BondType.SINGLE)
+    mol = sheet.GetMol()
+    mol.UpdatePropertyCache(strict=False)
+    return Chem.AddHs(mol, addCoords=False)
+
+
+def _hydroxyl_angles(mol, coords):
+    """{hydroxyl H index: (C-O-H angle, whether the carbon is aromatic)}."""
+    angles = {}
+    for o in mol.GetAtoms():
+        hs = [n.GetIdx() for n in o.GetNeighbors() if n.GetAtomicNum() == 1]
+        heavy = [n for n in o.GetNeighbors() if n.GetAtomicNum() != 1]
+        if o.GetAtomicNum() == 8 and len(hs) == 1 and len(heavy) == 1:
+            c = heavy[0]
+            angles[hs[0]] = (
+                _angle(coords[c.GetIdx()], coords[o.GetIdx()], coords[hs[0]]),
+                c.GetIsAromatic(),
+            )
+    return angles
+
+
+class TestCrowdedHydroxyls:
+    # rq-7515b128 -- a crowded hydroxyl hydrogen is turned about its C-O bond,
+    # not translated off it. Its out-of-plane candidates used to add a z offset
+    # and rescale only the bond, which bent C-O-H anywhere from 95 to 178
+    # degrees.
+    # rq-3e250d24
+    def test_crowded_hydroxyls_keep_their_angle(self, monkeypatch):
+        mol = _hydroxylated_decorated_sheet()
+        seen = {}
+        original = geometry_3d._optimize_h_positions
+
+        def spy(m, coords, **kwargs):
+            seen["before"] = coords.copy()
+            out = original(m, coords, **kwargs)
+            seen["after"] = out.copy()
+            return out
+
+        monkeypatch.setattr(geometry_3d, "_optimize_h_positions", spy)
+        gen = CoordinateGenerator(seed=0)
+        out, coords = gen.generate_3d_coordinates(mol)
+        assert gen.used_hex_lattice
+
+        moved = {
+            h for h in np.flatnonzero(
+                np.linalg.norm(seen["after"] - seen["before"], axis=1) > 1e-6
+            )
+        }
+        angles = _hydroxyl_angles(mol, coords)
+        crowded = {h: angles[h] for h in moved if h in angles}
+        # The premise: both kinds of hydroxyl were crowded enough to be moved.
+        assert any(aromatic for _a, aromatic in crowded.values())
+        assert any(not aromatic for _a, aromatic in crowded.values()), "no -CH2-OH was moved"
+        assert all(100.0 <= a <= 120.0 for a, _ in angles.values()), sorted(angles.values())
+
+    # rq-3e250d24
+    @pytest.mark.slow
+    def test_hydroxyls_on_a_150_carbon_sheet_are_not_linear(self, monkeypatch):
+        # Before the fix, ten of this structure's fifteen hydroxyls came out
+        # at 178 degrees: a z offset that cancelled the H's out-of-plane
+        # component left it on the C-O axis.
+        mol, coords, _comp = _generate_on_hex_lattice(
+            monkeypatch, target_num_carbons=150, H_C_ratio=0.5, O_C_ratio=0.1,
+            seed=10, strict=False,
+        )
+        angles = [a for a, _ in _hydroxyl_angles(mol, coords).values()]
+        assert angles, "expected hydroxyl groups on this structure"
+        assert all(100.0 <= a <= 120.0 for a in angles), sorted(angles)
+
+
+def _fjord_hydroxyls():
+    """[5]helicene on the flat lattice with an OH on each fjord carbon.
+
+    The two fjord carbons are unbonded and 1.42 A apart, so each radially
+    placed oxygen lands 0.06 A from the other arm's carbon -- what the
+    elongated skeleton builder produced at 150 C, H/C 0.35, seed 4."""
+    step = LATTICE_BOND * np.sqrt(3.0)
+    centres, p = [np.zeros(2)], np.zeros(2)
+    for turn in (0.0, 60.0, 120.0, 180.0):
+        p = p + step * np.array([np.cos(np.radians(turn)), np.sin(np.radians(turn))])
+        centres.append(p)
+    mol, coords = _flat_pah_on_lattice(centres)
+    carbons = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 6]
+    fjord = next(
+        (i, j) for i, j in itertools.combinations(carbons, 2)
+        if mol.GetBondBetweenAtoms(i, j) is None
+        and np.linalg.norm(coords[i] - coords[j]) < 1.5
+    )
+    rw, coords = Chem.RWMol(mol), list(coords)
+    for c in fjord:
+        o = next(n.GetIdx() for n in rw.GetAtomWithIdx(c).GetNeighbors() if n.GetAtomicNum() == 1)
+        rw.GetAtomWithIdx(o).SetAtomicNum(8)
+        out = coords[o] - coords[c]
+        coords[o] = coords[c] + 1.36 * out / np.linalg.norm(out)
+    heavy = [x for k, x in enumerate(coords) if rw.GetAtomWithIdx(k).GetAtomicNum() != 1]
+    for c in fjord:
+        o = next(n.GetIdx() for n in rw.GetAtomWithIdx(c).GetNeighbors() if n.GetAtomicNum() == 8)
+        h = rw.AddAtom(Chem.Atom(1))
+        rw.AddBond(o, h, Chem.BondType.SINGLE)
+        coords.append(_bent_hydrogen_position(coords[o], coords[c], 0.96, heavy))
+    mol = rw.GetMol()
+    Chem.SanitizeMol(mol)
+    return mol, np.array(coords)
+
+
+class TestReliefDoesNotDependOnHydroxylHydrogens:
+    # rq-8e5f5dc1 -- relief must not hinge on where hydroxyl hydrogens point.
+    # rq-47354e4f -- the tethered UFF was cut off at 400 iterations with
+    # contacts still open; this sheet kept 19 clashes then and clears now.
+    @pytest.mark.slow
+    def test_the_relaxation_runs_to_convergence(self, monkeypatch):
+        mol, coords, _comp = _generate_on_hex_lattice(
+            monkeypatch, target_num_carbons=100, H_C_ratio=0.6, O_C_ratio=0.0,
+            seed=1, strict=False,
+        )
+        assert _clash_pairs(mol, coords) == []
+
+    # rq-7cab77bd
+    def test_groups_sharing_a_tilt_direction_still_separate(self):
+        # Two hydroxyls on the arms of a fjord, aimed at each other: each O
+        # sits almost on the other arm's carbon. Their first contacts are with
+        # those carbons, so each group is handed a direction on its own --
+        # both +1 -- before the O...O contact between them is reached.
+        mol, coords = _fjord_hydroxyls()
+        tilted = _tilt_crowded_substituents(mol, coords)
+        o1, o2 = (a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() == 8)
+        assert np.linalg.norm(tilted[o1] - tilted[o2]) > 2.0
+        assert np.sign(tilted[o1][2]) != np.sign(tilted[o2][2])
 
 
 class TestStrictValidationOnDecoratedSheets:
