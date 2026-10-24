@@ -105,6 +105,11 @@ it wraps, and the deferred import is gone.
 5. **Validation** (`pipeline/validation.py`) — `ValidationEngine` checks composition ratios and
    geometry.
 
+With `linked_units=True` the skeleton step builds several separate aromatic units joined in a tree by
+linkers instead of one fused sheet (`pipeline/multi_unit.py`), the oxygen target is taken net of
+linker oxygen, and a dedicated embedder keeps each unit flat while the links rotate. Off by default;
+specified in `linked-units.md`.
+
 ## Surface pipeline <!-- rq-e13b2348 -->
 
 `generate_surface()` delegates to `SurfaceBuilder`. Each sheet goes through the single-molecule
@@ -153,6 +158,7 @@ These hold across the whole system and are easy to violate locally.
 | `condensation-annealing.md` | Wood anchors, the schedule, packing verification, run provenance |
 | `charge-backends.md` | Backend refusal, charge conservation, the 1.14 factor, model provenance |
 | `cli-arguments.md` | Config precedence, exit status, cross-argument consistency, stream separation |
+| `linked-units.md` | Opt-in island structures: unit count by temperature, linker motifs, flat units, composition, records |
 
 Every module the 2026-07-30 review listed is now specified, and so are the four console entry
 points. Those were previously described here as holding no logic of their own; specifying them
