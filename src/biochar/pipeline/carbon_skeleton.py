@@ -31,17 +31,80 @@ _AROMATIC_CC_BOND = 1.42
 # what is physically one carbon atom.
 _POSITION_MERGE_TOLERANCE = 0.05  # Å
 
+# Contact rules for growth with pentagons/heptagons. Odd rings do not tile the
+# plane, so once two growth fronts meet around a defect their predicted vertices
+# land *near* existing atoms rather than on them. The pure-hexagon rules (merge
+# within 0.05 Å, bond anything under 1.45 Å) then bonded those near-misses,
+# giving carbons of degree 4-10 that no sanitization accepts -- every Wood-ratio
+# sheet of a few hundred carbons failed that way. With defects a fusion is
+# therefore planned before it is applied and refused when it would put a new
+# atom in an impossible place. Bands, in Å from an existing atom:
+#   < merge tolerance       the same atom (wider than the lattice's 0.05, since
+#                           off-lattice fronts meet with a few tenths of drift)
+#   [_DEFECT_BOND_MIN, _DEFECT_BOND_MAX]  a bond, provided both atoms stay
+#                           at degree <= 3
+#   anything else under _DEFECT_CLEARANCE  a collision: refuse the fusion
+# 2.0 Å sits below the shortest legitimate 1,3 distance a mixed 5/6/7 sheet
+# produces (~2.2 Å, two heptagons sharing a vertex) and well above a bond.
+_DEFECT_MERGE_TOLERANCE = 0.35
+_DEFECT_BOND_MIN = 1.25
+_DEFECT_BOND_MAX = 1.60
+_DEFECT_CLEARANCE = 2.0
+
+# Attempts per build. A failed growth is seed-dependent -- the RNG breaks ties
+# between equally ranked fusion edges and draws ring sizes -- so a fresh
+# sub-seed is a real second chance, not a repeat.
+_MAX_BUILD_ATTEMPTS = 8
+
+# Curved sheets reject more attempts (a bare bond, a parity that will not fix)
+# and each costs ~0.2 s at 600 carbons, so they get more of them.
+_MAX_CURVED_BUILD_ATTEMPTS = 24
+
+# Ring count up to which RDKit's exhaustive aromaticity search (every subset of
+# up to six fused rings) is cheap enough to allow. Measured on RDKit 2025.09:
+# 25 rings 0.06 s, 35 rings 0.5 s, 45 rings 2.5 s, 68 rings did not finish in
+# 25 s -- per sanitization, and the pipeline sanitizes many times. 30 rings
+# (~100 carbons) keeps the worst case near 0.2 s.
+_RDKIT_EXHAUSTIVE_RING_LIMIT = 30
+
+# Best-ranked edges a 5-7-5 cluster is tried on before the heptagon draw is
+# given up as a hexagon. Each try copies the sheet for rollback, so the bound
+# keeps a blocked draw from costing a pass over the whole perimeter.
+_CLUSTER_SITES_TRIED = 6
+
+# Atoms a 5-7-5 cluster adds on open edge (heptagon 5, two pentagons 3 each).
+_CLUSTER_ATOMS = 11
+
+# Hexagons a curved sheet may be padded with while looking for a fusion that
+# fixes its parity. Each adds four carbons, so this bounds the overshoot.
+_PARITY_PADDING_TRIES = 1
+
 logger = logging.getLogger(__name__)
 
 
 class SkeletonError(RuntimeError):
     """Raised when a carbon skeleton cannot be built for the request.
 
-    Subclasses RuntimeError so callers already catching that keep working. The
-    failure is deterministic -- the compact hex build does not use the RNG -- so
-    a seed retry cannot help, and `workflows.sweep` is right to record the point
-    as failed rather than retrying it.
+    Subclasses RuntimeError so callers already catching that keep working.
+    Growth depends on the seed (it breaks ties between fusion edges and draws
+    ring sizes), and the assembler has already tried several sub-seeds derived
+    from it before raising. A different seed can still succeed, so this is not
+    a statement that the request is impossible.
     """
+
+
+def _sub_seed(seed: Optional[int], attempt: int):
+    """Seed for retry *attempt* of a build seeded with *seed*.
+
+    Attempt 0 is the caller's seed itself, so a build that succeeds first time
+    is unchanged. Later attempts are derived from (seed, attempt) rather than
+    ``seed + attempt``: with the additive form, seeds 1 and 2 shared four of
+    their five retries, so a "different" seed mostly replayed the same growth.
+    ``None`` stays ``None`` (an unseeded build is unseeded on every attempt).
+    """
+    if seed is None or attempt == 0:
+        return seed
+    return f"{seed}:{attempt}"
 
 
 @dataclass
@@ -161,6 +224,7 @@ def _mol_to_graph(mol: Chem.Mol) -> nx.Graph:
 def _graph_to_mol(
     G: nx.Graph,
     positions: Optional[Dict[int, Tuple[float, float]]] = None,
+    kekulize_by_matching: bool = False,
 ) -> Optional[Chem.Mol]:
     """
     Convert a NetworkX carbon graph to an RDKit Mol.
@@ -173,6 +237,10 @@ def _graph_to_mol(
     properties ``init_x`` / ``init_y`` so downstream geometry generation
     can use the hex-lattice layout directly (bypassing Compute2DCoords /
     kamada-kawai on large fused graphs).
+
+    *kekulize_by_matching* skips the all-aromatic attempt. RDKit kekulizes by
+    backtracking, which on a large sheet with odd rings can run for minutes;
+    a maximum matching is polynomial and gives the same Kekule structure class.
     """
     if G.number_of_nodes() == 0:
         return None
@@ -189,6 +257,9 @@ def _graph_to_mol(
                 atom = m.GetAtomWithIdx(idx)
                 atom.SetDoubleProp("init_x", float(x))
                 atom.SetDoubleProp("init_y", float(y))
+
+    if kekulize_by_matching:
+        return _graph_to_mol_by_matching(G, node_list, node_to_idx, _attach_positions)
 
     # Primary: all-aromatic bonds, let SanitizeMol kekulize
     rwmol = RWMol()
@@ -208,6 +279,11 @@ def _graph_to_mol(
         pass
 
     # Fallback: explicit Kekule via max matching (requires even node count)
+    return _graph_to_mol_by_matching(G, node_list, node_to_idx, _attach_positions)
+
+
+def _graph_to_mol_by_matching(G, node_list, node_to_idx, attach_positions):
+    """Kekule structure from a perfect matching; ``None`` if there is none."""
     if G.number_of_nodes() % 2 != 0:
         return None
 
@@ -225,9 +301,11 @@ def _graph_to_mol(
         rwmol2.AddBond(iu, iv, btype)
     mol2 = rwmol2.GetMol()
     try:
+        if len(matching) * 2 != G.number_of_nodes():
+            return None  # no perfect matching: some carbon would be a radical
         Chem.SanitizeMol(mol2)
         Chem.SetAromaticity(mol2, Chem.AromaticityModel.AROMATICITY_MDL)
-        _attach_positions(mol2)
+        attach_positions(mol2)
         return mol2
     except Exception:
         return None
@@ -505,6 +583,173 @@ def _fuse_heptagon(
         return next_node + 5
 
 
+def _plan_defect_fusion(
+    G: nx.Graph,
+    positions: Dict[int, Tuple[float, float]],
+    u: int,
+    v: int,
+    n_sides: int,
+) -> Optional[Tuple[List[Tuple[Optional[int], Tuple[float, float]]], List[Tuple[int, int]]]]:
+    """Plan fusing an *n_sides* ring onto (u, v) under the defect contact rules.
+
+    Returns ``(vertices, contacts)`` -- one ``(existing_node_or_None, position)``
+    per new ring vertex, and the extra bonds the ring closes onto atoms it
+    meets -- or ``None`` when the ring would collide with the sheet or push any
+    carbon past three bonds. Nothing is modified.
+    """
+    outward = _outward_direction(G, positions, u, v)
+    new_pos = _compute_fused_ring_positions(
+        positions[u], positions[v], outward, n_sides=n_sides, num_new=n_sides - 2
+    )
+
+    vertices: List[Tuple[Optional[int], Tuple[float, float]]] = []
+    pending_contacts: List[Tuple[int, int]] = []  # (vertex index, existing node)
+    for i, (px, py) in enumerate(new_pos):
+        merged = None
+        bonded: List[int] = []
+        for node, (qx, qy) in positions.items():
+            d = math.hypot(px - qx, py - qy)
+            if d < _DEFECT_MERGE_TOLERANCE:
+                if merged is not None:
+                    return None
+                merged = node
+            elif d < _DEFECT_BOND_MIN:
+                return None
+            elif d <= _DEFECT_BOND_MAX:
+                bonded.append(node)
+            elif d < _DEFECT_CLEARANCE:
+                return None
+        if merged is not None:
+            if merged in (u, v) or any(m == merged for m, _ in vertices):
+                return None
+            # A merged corner's neighborhood is already part of the sheet;
+            # the distances above were measured from a point a few tenths away
+            # from it, so its own bonds and neighbors are not new contacts.
+            vertices.append((merged, (px, py)))
+        else:
+            vertices.append((None, (px, py)))
+            pending_contacts.extend((i, b) for b in bonded)
+
+    # A contact closes a second ring through the sheet; refuse it when that
+    # ring would be smaller than a pentagon. Its size is one (the contact) plus
+    # the way round the new ring from vertex i to an existing ring atom x plus
+    # the path from x back to the contacted atom b.
+    n = n_sides
+    existing_at = {0: v, n - 1: u}  # ring order: v, new..., u
+    for k, (m, _) in enumerate(vertices):
+        if m is not None:
+            existing_at[k + 1] = m
+    ring_atoms = set(existing_at.values())
+    for i, b in pending_contacts:
+        if b in ring_atoms:
+            continue  # a bond of the new ring itself, not a contact
+        dist_b = nx.single_source_shortest_path_length(G, b, cutoff=3)
+        for k, x in existing_at.items():
+            around = abs((i + 1) - k)
+            around = min(around, n - around)
+            if x in dist_b and 1 + around + dist_b[x] < 5:
+                return None
+
+    # Degree check over every edge the fusion would add. Placeholder ids
+    # ("new", i) stand in for vertices that do not exist yet.
+    ids = [m if m is not None else ("new", i) for i, (m, _) in enumerate(vertices)]
+    ring_seq = [v] + ids + [u]
+    ring_edges = {frozenset(p) for p in zip(ring_seq, ring_seq[1:])}
+    contact_edges = {frozenset((ids[i], b)) for i, b in pending_contacts} - ring_edges
+    added = [
+        e for e in ring_edges | contact_edges
+        if not all(isinstance(n, int) for n in e) or not G.has_edge(*e)
+    ]
+    extra: Dict = {}
+    for e in added:
+        for n in e:
+            extra[n] = extra.get(n, 0) + 1
+    for n, k in extra.items():
+        base = G.degree(n) if isinstance(n, int) else 0
+        if base + k > 3:
+            return None
+
+    contacts = [(i, b) for i, b in pending_contacts
+                if frozenset((ids[i], b)) in contact_edges]
+    return vertices, contacts
+
+
+def _apply_defect_fusion(
+    G: nx.Graph,
+    positions: Dict[int, Tuple[float, float]],
+    u: int,
+    v: int,
+    plan,
+    next_node: int,
+) -> Tuple[int, Tuple[int, ...]]:
+    """Apply a plan from ``_plan_defect_fusion``.
+
+    Returns the next free node id and the new ring's atoms.
+
+    Contact bonds are added immediately rather than in a pass at the end, so
+    the degrees the next fusion is planned against are the real ones.
+    """
+    vertices, contacts = plan
+    ids: List[int] = []
+    for existing, pos in vertices:
+        if existing is not None:
+            ids.append(existing)
+        else:
+            G.add_node(next_node)
+            positions[next_node] = pos
+            ids.append(next_node)
+            next_node += 1
+    ring_seq = [v] + ids + [u]
+    for a, b in zip(ring_seq, ring_seq[1:]):
+        G.add_edge(a, b)
+    for i, b in contacts:
+        G.add_edge(ids[i], b)
+    return next_node, tuple(ring_seq)
+
+
+def _first_clear_fusion(
+    G: nx.Graph,
+    positions: Dict[int, Tuple[float, float]],
+    ranked_edges: List[Tuple[int, int]],
+    ring_preference: Tuple[int, ...],
+    odd_only: bool = False,
+):
+    """First (u, v, ring, plan) that passes the defect contact rules.
+
+    Ring sizes are tried in *ring_preference* order, each across all edges in
+    rank order, so the drawn size is kept wherever it fits before falling back.
+    With *odd_only*, only fusions adding an odd number of atoms qualify (the
+    parity step).
+    """
+    seen = set()
+    for ring in ring_preference:
+        if ring in seen:
+            continue
+        seen.add(ring)
+        for u, v in ranked_edges:
+            plan = _plan_defect_fusion(G, positions, u, v, ring)
+            if plan is None:
+                continue
+            if odd_only and sum(1 for m, _ in plan[0] if m is None) % 2 == 0:
+                continue
+            return u, v, ring, plan
+    return None
+
+
+def _hexagon_new_atom_count(
+    G: nx.Graph,
+    positions: Dict[int, Tuple[float, float]],
+    u: int,
+    v: int,
+) -> int:
+    """How many atoms ``_fuse_hexagon`` would add at (u, v); nothing modified."""
+    outward = _outward_direction(G, positions, u, v)
+    new_pos = _compute_fused_ring_positions(
+        positions[u], positions[v], outward, n_sides=6, num_new=4
+    )
+    return sum(1 for p in new_pos if _find_node_at_position(positions, p) is None)
+
+
 def _choose_ring_size(
     rng: random.Random,
     pentagon_fraction: float,
@@ -618,6 +863,16 @@ def _grow_graph(
     G = G.copy()
     rng = random.Random(seed)
     next_node = max(G.nodes()) + 1 if G.nodes() else 0
+    # Defect growth with positions is planned against the contact rules (see
+    # _DEFECT_CLEARANCE). Pure-hexagon growth keeps its historical path: on an
+    # exact lattice every predicted vertex is a lattice site, so there are no
+    # near-misses to guard against.
+    guarded = positions is not None and (defect_fraction > 0 or heptagon_fraction > 0)
+    if guarded:
+        return _grow_curved(
+            G, target_nodes, rng, defect_fraction, heptagon_fraction,
+            positions, next_node,
+        )
 
     # When position-tracking is active some ring fusions add zero new nodes
     # (shared corners are merged into existing nodes).  We must therefore
@@ -677,11 +932,28 @@ def _grow_graph(
     if positions is not None:
         _add_missing_lattice_bonds(G, positions)
 
-    # Parity guard: ensure even node count for Kekulé assignment.
-    # Run as a bounded loop: when position-merging is active a single ring
-    # fusion may add zero new nodes (all corners merged), leaving the count
-    # still odd — we must try additional edges until parity is restored or
-    # no more fusable edges remain.
+    if positions is not None and defect_fraction <= 0 and heptagon_fraction <= 0:
+        # Pure-hexagon parity. A hexagon adds four atoms on open edge and so
+        # cannot change parity; only one that closes onto an existing corner
+        # (a cove: three new atoms) can. The generic loop below fused the
+        # top-ranked edge whatever it added, so an odd sheet kept growing
+        # hexagon by hexagon until a cove happened to come up first -- a 104-C
+        # request grew to 463 C and was then unkekulizable anyway. Fuse at the
+        # best-ranked edge that adds an odd count, or leave the sheet odd for
+        # the caller's retry if none does.
+        if G.number_of_nodes() % 2 != 0:
+            fusable = _get_fusable_edges(G)
+            fusable.sort(key=lambda e: (-_edge_neighbor_degree(G, e[0], e[1]), rng.random()))
+            for u, v in fusable:
+                if _hexagon_new_atom_count(G, positions, u, v) % 2 == 1:
+                    _fuse_hexagon(G, u, v, next_node, positions=positions)
+                    _add_missing_lattice_bonds(G, positions)
+                    break
+        return G
+
+    # Parity guard without positions: ensure even node count for Kekulé
+    # assignment. Without position merging every fusion adds its full count,
+    # so a pentagon or heptagon (odd) restores parity in one step.
     _parity_limit = max(10, G.number_of_nodes())
     for _ in range(_parity_limit):
         if G.number_of_nodes() % 2 == 0:
@@ -702,6 +974,264 @@ def _grow_graph(
             next_node = _fuse_hexagon(G, u, v, next_node, positions=positions)
 
     return G
+
+
+def _grow_curved(
+    G: nx.Graph,
+    target_nodes: int,
+    rng: random.Random,
+    defect_fraction: float,
+    heptagon_fraction: float,
+    positions: Dict[int, Tuple[float, float]],
+    next_node: int,
+) -> nx.Graph:
+    """Ring-fusion growth with pentagons and heptagons (see ``_grow_graph``).
+
+    Specified in rqm/carbon-skeleton.md (rq-2d15a0c0), including its known
+    limit: a flat projection cannot close around a cluster's disclination, so
+    curved sheets carry about twice the edge of flat ones (rq-37961357).
+
+    Two things differ from flat hexagon growth.
+
+    Every fusion is planned against the contact rules first (``_DEFECT_*``), so
+    fronts that meet around a defect never bond atoms that are not really
+    neighbors.
+
+    Defects are placed in fused 5-7 clusters where possible. RDKit perceives
+    aromaticity ring by ring, then searches *subsets* of up to six fused rings
+    until every ring bond is aromatic -- and that search is combinatorial in
+    the number of rings in the sheet. Pentagons and heptagons are aromatic only
+    in 5-7 pairs, and a pair leaves its own shared bond bare
+    (``_uncovered_defect_bonds``), so a defect needs two complementary
+    neighbors: a heptagon carrying two pentagons. A sheet with a bare bond
+    makes every sanitization search all subsets -- the pipeline sanitizes many
+    times -- which took 0.5 s at 104 C and did not finish at 200 C. Wood et
+    al.'s curved sheets cluster their defects this way (their heptagons carry
+    two or three fused pentagons), which is why their 256-carbon block
+    perceives in under half a second.
+
+    Growth cannot guarantee coverage -- holes and contact-closed rings appear
+    that it never planned -- so callers measure the finished sheet with
+    ``_aromaticity_search_is_bounded`` and treat a failure as a failed attempt.
+    """
+    rings: List[Tuple[int, ...]] = []  # defect rings added, as ordered atom tuples
+    # Bonds inside some hexagon. Library seeds are all-hexagon, so every seed
+    # bond starts covered.
+    hex_bonds = {frozenset(e) for e in G.edges()}
+
+    def fuse(choice):
+        nonlocal next_node
+        u, v, ring, plan = choice
+        next_node, atoms = _apply_defect_fusion(G, positions, u, v, plan, next_node)
+        if ring == 6:
+            hex_bonds.update(_ring_bonds(atoms))
+        else:
+            rings.append(atoms)
+        return atoms
+
+    def ranked(edges):
+        return sorted(edges, key=lambda e: (-_edge_neighbor_degree(G, e[0], e[1]), rng.random()))
+
+    def on_ring(ring_atoms):
+        rs = set(ring_atoms)
+        return [e for e in _get_fusable_edges(G) if e[0] in rs and e[1] in rs]
+
+    def attach_pentagon(heptagons, odd_only=False):
+        """Fuse a pentagon onto the first heptagon in *heptagons* that takes one."""
+        for h in heptagons:
+            choice = _first_clear_fusion(G, positions, ranked(on_ring(h)), (5,), odd_only=odd_only)
+            if choice is not None:
+                fuse(choice)
+                return True
+        return False
+
+    def place_cluster(edges):
+        """Fuse a heptagon carrying two pentagons; roll back if it cannot.
+
+        A heptagon is placed only with two pentagons on it, which covers every
+        bond of the cluster; with one, the shared 5-7 bond stays bare. So the
+        cluster is built as a unit and undone if the second pentagon has
+        nowhere to go.
+        """
+        nonlocal next_node
+        for u, v in edges[:_CLUSTER_SITES_TRIED]:
+            plan = _plan_defect_fusion(G, positions, u, v, 7)
+            if plan is None:
+                continue
+            saved = (G.copy(), dict(positions), next_node, len(rings), set(hex_bonds))
+            heptagon = fuse((u, v, 7, plan))
+            if attach_pentagon([heptagon]) and attach_pentagon([heptagon]):
+                return True
+            G_saved, pos_saved, next_node, n_rings, hex_saved = saved
+            G.clear()
+            G.update(G_saved)
+            positions.clear()
+            positions.update(pos_saved)
+            del rings[n_rings:]
+            hex_bonds.clear()
+            hex_bonds.update(hex_saved)
+        return False
+
+    # Pentagon draws waiting for a heptagon to sit on. With heptagons requested,
+    # a pentagon is placed only on a heptagon: alone it can never be covered.
+    # Only on sheets too big for RDKit's exhaustive search, though -- a compact
+    # flake has about one ring per three carbons -- since below that a lone
+    # defect costs nothing and clusters (11 atoms each) would crowd a small
+    # sheet out of heptagons altogether.
+    pending_pentagons = 0
+    clustering = (heptagon_fraction > 0
+                  and target_nodes > 3 * _RDKIT_EXHAUSTIVE_RING_LIMIT)
+
+    while G.number_of_nodes() < target_nodes:
+        fusable = _get_fusable_edges(G)
+        if not fusable:
+            break
+        fusable = ranked(fusable)
+        nodes_remaining = target_nodes - G.number_of_nodes()
+
+        # A cluster adds 11 atoms and so flips parity; hexagons do not. Fixing
+        # an odd count after the target is reached costs the most overshoot,
+        # so an odd sheet takes its last cluster while it still fits.
+        if (clustering and G.number_of_nodes() % 2 == 1
+                and _CLUSTER_ATOMS <= nodes_remaining < _CLUSTER_ATOMS + 4
+                and place_cluster(fusable)):
+            pending_pentagons = max(0, pending_pentagons - 2)
+            continue
+
+        ring = _choose_ring_size(rng, defect_fraction, heptagon_fraction, nodes_remaining)
+
+        if clustering and ring == 5:
+            # On an existing heptagon if one has room (Wood's heptagons carry
+            # two or three); otherwise owed to the next heptagon.
+            if attach_pentagon([r for r in rings if len(r) == 7]):
+                continue
+            pending_pentagons += 1
+            ring = 6
+
+        if clustering and ring == 7:
+            # A cluster adds 11 atoms; near the target it would overshoot by
+            # more than a ring, so the draw becomes a hexagon there.
+            if nodes_remaining >= _CLUSTER_ATOMS and place_cluster(fusable):
+                pending_pentagons = max(0, pending_pentagons - 2)
+                continue
+            ring = 6
+
+        # A hexagon, or a defect placed alone (small sheets, or pentagon-only
+        # growth). Take the best-ranked edge that can carry it without a
+        # collision, falling back to a hexagon. A drawn defect that fits nowhere is a lost draw, not a
+        # stall -- the realized share already sits below the probability.
+        choice = _first_clear_fusion(G, positions, fusable, (ring, 6))
+        if choice is None:
+            break  # every front is blocked
+        fuse(choice)
+
+    # Parity needs a fusion adding an odd number of atoms. Cheapest first: a
+    # hexagon closing a cove (+3, no defect), then a pentagon on an existing
+    # heptagon (+3, stays covered) -- or, on a sheet small enough not to
+    # cluster, a lone pentagon or heptagon. With none available, pad with one
+    # hexagon -- which opens new coves -- and look again. A whole cluster
+    # (+11) would also do, but overshoots by more than a ring or two; a sheet
+    # still odd is left for the caller to retry with another sub-seed.
+    for attempt in range(_PARITY_PADDING_TRIES + 1):
+        if G.number_of_nodes() % 2 == 0:
+            break
+        edges = ranked(_get_fusable_edges(G))
+        choice = _first_clear_fusion(G, positions, edges, (6,), odd_only=True)
+        if choice is None and not clustering:
+            choice = _first_clear_fusion(G, positions, edges, (5, 7), odd_only=True)
+        if choice is not None:
+            fuse(choice)
+            break
+        if clustering and attach_pentagon([r for r in rings if len(r) == 7], odd_only=True):
+            break
+        if attempt == _PARITY_PADDING_TRIES:
+            break  # still odd: the caller retries rather than overshoot further
+        choice = _first_clear_fusion(G, positions, edges, (6,))
+        if choice is None:
+            break
+        fuse(choice)
+
+    return G
+
+
+def _ring_bonds(ring) -> Set[frozenset]:
+    """Bonds of a ring given as an ordered atom tuple."""
+    return {frozenset((ring[i], ring[(i + 1) % len(ring)])) for i in range(len(ring))}
+
+
+def _uncovered_defect_bonds(defect_rings, hex_bonds: Set[frozenset]) -> Set[frozenset]:
+    """Defect-ring bonds RDKit's cheap aromaticity passes will not mark.
+
+    Mirrors RDKit's ``applyHuckelToFused`` (2025.09), which stops searching as
+    soon as every ring bond is aromatic. A hexagon of sp2 carbons is aromatic
+    alone and marks all six bonds. A pentagon (5 pi) or heptagon (7) is never
+    aromatic alone; a 5-7 pair sharing one bond is (10, azulene), but RDKit
+    marks only the pair's *envelope* -- the bonds in exactly one of the two
+    rings -- so the shared bond needs a second pair to cover it: a heptagon
+    carrying two pentagons, or a pentagon between two heptagons. No other pair
+    of 5/6/7 rings is 4n+2, so anything left over is reached only by subsets of
+    three to six rings, enumerated over every ring in the sheet.
+    """
+    covered = set(hex_bonds)
+    bonds = [_ring_bonds(r) for r in defect_rings]
+    for ri, rb in zip(defect_rings, bonds):
+        # Any all-sp2 ring of 4n+2 atoms is aromatic alone (a 10- or 14-atom
+        # hole), up to RDKit's 24-atom ring limit.
+        if len(ri) % 4 == 2 and len(ri) <= 24:
+            covered |= rb
+    for i, ri in enumerate(defect_rings):
+        for j in range(i + 1, len(defect_rings)):
+            if len(ri) + len(defect_rings[j]) != 12 or len(ri) == 6:
+                continue
+            shared = bonds[i] & bonds[j]
+            if len(shared) == 1:  # RDKit does not pair rings sharing more
+                covered |= (bonds[i] | bonds[j]) - shared
+    return set().union(*bonds) - covered if bonds else set()
+
+
+def _needy_rings(defect_rings, hex_bonds) -> List[Tuple[int, ...]]:
+    """Defect rings carrying a bond ``_uncovered_defect_bonds`` leaves bare."""
+    bare = _uncovered_defect_bonds(defect_rings, hex_bonds)
+    return [r for r in defect_rings if _ring_bonds(r) & bare]
+
+
+def _sheet_rings(G: nx.Graph) -> List[Tuple[int, ...]]:
+    """SSSR rings of a carbon graph, each as atoms in ring order.
+
+    Measured on the finished graph rather than trusted from growth bookkeeping,
+    because a contact bond closes rings growth never planned. No aromaticity
+    perception is run, so this is safe on any sheet.
+    """
+    rw = RWMol()
+    order = sorted(G.nodes())
+    idx = {n: i for i, n in enumerate(order)}
+    for _ in order:
+        rw.AddAtom(Chem.Atom(6))
+    for a, b in G.edges():
+        rw.AddBond(idx[a], idx[b], Chem.BondType.SINGLE)
+    m = rw.GetMol()
+    m.UpdatePropertyCache(strict=False)
+    return [tuple(r) for r in Chem.GetSymmSSSR(m)]
+
+
+def _aromaticity_search_is_bounded(rings: List[Tuple[int, ...]]) -> bool:
+    """Whether RDKit can perceive aromaticity on a sheet with these rings.
+
+    RDKit stops searching ring subsets once every ring bond is aromatic, and
+    otherwise enumerates every subset of up to six rings. A sheet passes when
+    it has no bare bond (``_uncovered_defect_bonds``), or when it has few
+    enough rings that the full enumeration is cheap anyway -- which is what
+    keeps small pentagon-only sheets (no heptagon to pair with) buildable.
+    """
+    if len(rings) <= _RDKIT_EXHAUSTIVE_RING_LIMIT:
+        return True
+    hex_bonds = set().union(*[_ring_bonds(r) for r in rings if len(r) == 6])
+    # Rings of other sizes are holes where a front could not close (a flat
+    # sheet cannot close around a 5-7-5 cluster's net disclination). Their
+    # bonds also border real rings, so they cost RDKit nothing as long as
+    # those are covered.
+    others = [r for r in rings if len(r) != 6]
+    return not _needy_rings(others, hex_bonds)
 
 
 def _add_missing_lattice_bonds(
@@ -920,14 +1450,27 @@ class PAHAssembler:
         # re-checks the count. A caller can recover from an exception; it cannot
         # recover from a plausible molecule of the wrong size.
         if mol is None:
+            curved = defect_fraction > 0.0 or heptagon_fraction > 0.0
+            attempts = _MAX_CURVED_BUILD_ATTEMPTS if curved else _MAX_BUILD_ATTEMPTS
+            hint = ""
+            if defect_fraction > 0.0 and heptagon_fraction <= 0.0:
+                hint = (
+                    " Pentagons without heptagons cannot be paired, and a sheet "
+                    f"of more than {_RDKIT_EXHAUSTIVE_RING_LIMIT} rings (about "
+                    "100 carbons) with an unpaired pentagon on its edge makes "
+                    "RDKit's aromaticity perception run for minutes, so such "
+                    "sheets are refused; add heptagons (Wood et al. 2024: "
+                    "heptagon_fraction about half of defect_fraction)."
+                )
             raise SkeletonError(
                 f"could not build a carbon skeleton for "
                 f"target_num_carbons={target_num_carbons} "
                 f"(defect_fraction={defect_fraction}, "
-                f"heptagon_fraction={heptagon_fraction}). The compact hex build "
-                f"returned nothing, which does not depend on the seed, so "
-                f"retrying will not help; reduce the target or relax the ring "
-                f"fractions."
+                f"heptagon_fraction={heptagon_fraction}) after "
+                f"{attempts} growth attempts derived from "
+                f"seed={self.seed}. Growth depends on the seed, so retrying with "
+                f"another seed may succeed; otherwise reduce the target or relax "
+                f"the ring fractions.{hint}"
             )
 
         Chem.SetAromaticity(mol, Chem.AromaticityModel.AROMATICITY_MDL)
@@ -953,10 +1496,10 @@ class PAHAssembler:
         Defect mode (defect_fraction > 0):
             Pentagon additions add 3 nodes, so the parity constraint is
             relaxed — any even-count seed works because the growth loop
-            handles parity itself.  Up to *_MAX_DEFECT_RETRIES* attempts
-            are made with different sub-seeds if kekulization fails.
+            handles parity itself.  Up to *_MAX_CURVED_BUILD_ATTEMPTS* attempts
+            are made with different sub-seeds if growth stalls short of the
+            target or kekulization fails.
         """
-        _MAX_DEFECT_RETRIES = 5
         _MAX_ELONGATE_RETRIES = 4
 
         if defect_fraction <= 0.0 and heptagon_fraction <= 0.0:
@@ -1029,7 +1572,7 @@ class PAHAssembler:
                 return out
 
             base_seed = self.seed if self.seed is not None else 0
-            for attempt in range(_MAX_DEFECT_RETRIES):
+            for attempt in range(_MAX_CURVED_BUILD_ATTEMPTS):
                 G = _mol_to_graph(seed_mol)
                 grown_positions = dict(seed_positions) if seed_positions else None
                 # Defect mode stays compact: pentagon insertion already perturbs
@@ -1038,12 +1581,31 @@ class PAHAssembler:
                 # pure-hexagon feature (see the defect_fraction == 0 branch).
                 G = _grow_graph(
                     G, target,
-                    seed=base_seed + attempt,
+                    seed=_sub_seed(base_seed, attempt),
                     defect_fraction=defect_fraction,
                     positions=grown_positions, compactness=1.0,
                     heptagon_fraction=heptagon_fraction,
                 )
-                mol = _graph_to_mol(G, positions=grown_positions)
+                # Every front blocked before the target: a sheet below the
+                # request breaks rq-59e23c2e, so it is a failed attempt.
+                if G.number_of_nodes() < target:
+                    continue
+                # Checked before RDKit sees the sheet: an isolated defect makes
+                # its aromaticity perception exponential (see _grow_curved), so
+                # converting first would hang rather than fail.
+                rings = _sheet_rings(G)
+                if not _aromaticity_search_is_bounded(rings):
+                    continue
+                # Above the exhaustive limit the check above passes a sheet
+                # whose defect draws all happened to be lost, and retrying
+                # until one does would quietly answer a defect request with a
+                # flat sheet. Such an attempt is a failed one.
+                if len(rings) > _RDKIT_EXHAUSTIVE_RING_LIMIT:
+                    sizes = {len(r) for r in rings}
+                    if ((defect_fraction > 0 and 5 not in sizes)
+                            or (heptagon_fraction > 0 and 7 not in sizes)):
+                        continue
+                mol = _graph_to_mol(G, positions=grown_positions, kekulize_by_matching=True)
                 if mol is not None:
                     return mol
                 # kekulization failed — try again with a different sub-seed
@@ -1083,13 +1645,21 @@ class PAHAssembler:
             _attach_seed_positions(out, seed_positions)
             return out, target
 
-        G = _mol_to_graph(seed_mol)
-        grown_positions = dict(seed_positions) if seed_positions else None
-        G = _grow_graph(
-            G, target, seed=self.seed, defect_fraction=0.0,
-            positions=grown_positions, compactness=1.0,
-        )
-        return _graph_to_mol(G, positions=grown_positions), target
+        # Seed-dependent: the RNG breaks ties between equally ranked edges, so
+        # one seed can close the sheet with an odd count or unbalanced
+        # sublattices (no Kekule structure) where the next does not. Attempt 0
+        # is self.seed, so a build that succeeds first time is unchanged.
+        for attempt in range(_MAX_BUILD_ATTEMPTS):
+            G = _mol_to_graph(seed_mol)
+            grown_positions = dict(seed_positions) if seed_positions else None
+            G = _grow_graph(
+                G, target, seed=_sub_seed(self.seed, attempt), defect_fraction=0.0,
+                positions=grown_positions, compactness=1.0,
+            )
+            mol = _graph_to_mol(G, positions=grown_positions)
+            if mol is not None:
+                return mol, target
+        return None, target
 
     def _build_pure_hex_elongated(
         self, target: int, compactness: float, seed: int

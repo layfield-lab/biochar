@@ -606,6 +606,18 @@
     "title": "A contact marginally inside the floor is not a clash",
     "type": "scenario"
   },
+  "rq-22536e48": {
+    "decl": "Scenario: Every carbon in a curved sheet has at most three bonds",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Every carbon in a curved sheet has at most three bonds",
+    "type": "scenario"
+  },
   "rq-227a0ddd": {
     "decl": "Scenario: A BC400-like request passes strict validation",
     "file": "linked-units",
@@ -798,6 +810,19 @@
     ],
     "title": "Scaling a neutral molecule reports nothing",
     "type": "scenario"
+  },
+  "rq-2d15a0c0": {
+    "decl": "## A Curved Sheet Is Chemically Possible and Cheap to Perceive",
+    "file": "carbon-skeleton",
+    "level": 2,
+    "refs": [
+      {
+        "file": "src/biochar/pipeline/carbon_skeleton.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A Curved Sheet Is Chemically Possible and Cheap to Perceive",
+    "type": "section"
   },
   "rq-2da595b7": {
     "decl": "Scenario: Every status a build can return is one the documented set names",
@@ -996,6 +1021,19 @@
     ],
     "title": "An amino nitrogen types as aniline N on a small flake",
     "type": "scenario"
+  },
+  "rq-37961357": {
+    "decl": "### Known limit: curved sheets carry more edge than flat ones",
+    "file": "carbon-skeleton",
+    "level": 3,
+    "refs": [
+      {
+        "file": "src/biochar/pipeline/carbon_skeleton.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Known limit: curved sheets carry more edge than flat ones",
+    "type": "section"
   },
   "rq-37a3d53e": {
     "decl": "Scenario: A sheet with nothing to relieve is left alone",
@@ -1352,6 +1390,19 @@
     "title": "A target matching a library size is met exactly",
     "type": "scenario"
   },
+  "rq-4b588285": {
+    "decl": "## Growth Depends on the Seed, and a Failed Growth Is Retried",
+    "file": "carbon-skeleton",
+    "level": 2,
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Growth Depends on the Seed, and a Failed Growth Is Retried",
+    "type": "section"
+  },
   "rq-4dc5ce35": {
     "decl": "Scenario: An unparseable library entry is reported",
     "file": "carbon-skeleton",
@@ -1680,6 +1731,10 @@
     "file": "carbon-skeleton",
     "refs": [
       {
+        "file": "src/biochar/pipeline/carbon_skeleton.py",
+        "kind": "code"
+      },
+      {
         "file": "tests/test_carbon_skeleton_contract.py",
         "kind": "code"
       }
@@ -1705,6 +1760,18 @@
     "refs": [],
     "title": "Feature: Linked Multi-Unit Structures",
     "type": "file"
+  },
+  "rq-5af71ee2": {
+    "decl": "Scenario: A large pentagon-only request is refused with the reason",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A large pentagon-only request is refused with the reason",
+    "type": "scenario"
   },
   "rq-5b7a5ab8": {
     "decl": "Scenario: The annealing peak temperature follows the pyrolysis temperature",
@@ -2098,6 +2165,18 @@
       }
     ],
     "title": "The topology headers name the units and links",
+    "type": "scenario"
+  },
+  "rq-7504e809": {
+    "decl": "Scenario: Neighboring seeds do not share their retries",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Neighboring seeds do not share their retries",
     "type": "scenario"
   },
   "rq-7515b128": {
@@ -2606,6 +2685,18 @@
     "title": "A molecule RDKit rejects is still reported",
     "type": "scenario"
   },
+  "rq-8f5204cd": {
+    "decl": "Scenario: Wood-sized curved sheets build on every seed",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Wood-sized curved sheets build on every seed",
+    "type": "scenario"
+  },
   "rq-8ff54b34": {
     "decl": "Scenario: Linker oxygen counts toward the O/C target",
     "file": "linked-units",
@@ -3040,6 +3131,18 @@
     ],
     "title": "biochar",
     "type": "api-item"
+  },
+  "rq-a3c395ed": {
+    "decl": "Scenario: A growth that fails on the caller's seed is retried",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A growth that fails on the caller's seed is retried",
+    "type": "scenario"
   },
   "rq-a467c647": {
     "decl": "Scenario: A deprotonated oxygen has no free valence",
@@ -4362,6 +4465,18 @@
     "title": "grompp accepts a topology with each linker",
     "type": "scenario"
   },
+  "rq-e8417061": {
+    "decl": "Scenario: A sheet that closes with an odd count does not keep growing",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A sheet that closes with an odd count does not keep growing",
+    "type": "scenario"
+  },
   "rq-e918b504": {
     "decl": "Scenario: The unit count follows the temperature band",
     "file": "linked-units",
@@ -4531,6 +4646,18 @@
     "refs": [],
     "title": "fraction_ionized",
     "type": "api-item"
+  },
+  "rq-f1e2eb6a": {
+    "decl": "Scenario: Aromaticity perception on a large curved sheet terminates quickly",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Aromaticity perception on a large curved sheet terminates quickly",
+    "type": "scenario"
   },
   "rq-f1f301e0": {
     "decl": "- `properties(temperature: float, feedstock: Optional[str] = None) -> Dict[str, float]`",
