@@ -11,6 +11,8 @@ applies_when:
   - "A clash on the hex-lattice path is about to be written off as an artefact"
   - "Handing an RDKit molecule that already has a conformer to a force field"
   - "Placing a substituent by a radial or 'opposite the neighbours' rule"
+  - "A sheet carrying methyls, -CH2-OH or carboxyl groups is not taking the hex-lattice path"
+  - "Choosing between two embeddings by a count of validation errors"
 related_components:
   - validation
   - biochar_generator
@@ -23,6 +25,8 @@ tags:
   - uff
   - conformer
   - masked-bug
+  - aliphatic-decoration
+  - kamada-kawai
 ---
 
 # Overlaps on a flat lattice were dismissed as artefacts, and strict mode rejected nearly every large sheet
@@ -131,6 +135,42 @@ Count every error kind, or check finiteness first.
   cache built before the hydroxyl fix. The same skeletons from the real pipeline, with correct H
   placement, did not relieve. When a result depends on input details, re-capture the input from
   the real pipeline before tuning.
+
+## Follow-up: decorated sheets fell off the lattice (issue #66)
+
+The relief above only ran on sheets whose *every* carbon carried a lattice tag. Aliphatic
+decoration adds pendant methyl carbons that the skeleton builder never tagged, so one methyl sent
+the whole sheet to the Kamada–Kawai layout and past the relief. Nothing logged the switch: the
+symptom was only strict failures at 150 C, H/C 0.35 (seeds 2, 3 and 5, overlaps up to 0.40 Å). A
+coverage predicate that is stricter than the code needs routes work silently. When a path
+"should" apply and the symptom says it didn't, check the gate before the stage.
+
+Fixed by requiring only *ring* carbons to be tagged (`_lattice_covers_skeleton`,
+`src/biochar/pipeline/geometry_3d.py:211`) and placing the rest outward with tetrahedral or
+trigonal bond slots (`_offlattice_layout`, `geometry_3d.py:277`). Three things were learned on the
+way:
+
+- **Bond chemistry must come from the original molecule.** The embedding's working copy is
+  de-aromatised, so a phenolic C–O read from it looks aliphatic and was placed at 1.42 Å instead
+  of 1.36 Å. The layout takes `chemistry=mol` (`geometry_3d.py:1057`). This is the same family as
+  `the-working-copy-that-became-the-result.md`.
+- **Neither embedding dominates.** On the lattice, light decoration clears. Heavy decoration
+  (H/C 0.6) puts methyls on both carbons of a cove about 0.2 Å apart. A rigid tilt cannot clear
+  that, and the tethered UFF then blows apart. The free Kamada–Kawai + force-field path clears it
+  instead. The generator now runs the free embedding only when the relief leaves a clash on a
+  decorated sheet, and keeps the better of the two (`biochar_generator.py:953`). Across a 90-point
+  grid (100–150 C, H/C 0.35–0.6, O/C 0–0.3, five seeds), clash-free results went from 73 to 77.
+- **Compare total errors, not clashes.** Choosing by clash count alone picked a free embedding
+  with 26 clashes and seven ring bonds stretched to about 2 Å over an intact lattice sheet with 30.
+  `validate_geometry` also stops at the first NaN with a single error, so the comparison rejects
+  non-finite coordinates first.
+
+**Leave `_optimize_h_positions` alone unless you re-run the grid.** Its out-of-plane candidates
+(`geometry_3d.py:615`) translate a crowded O–H hydrogen and only rescale the bond, so X–O–H ends
+up at about 95–135°. Projecting the candidates back onto the bond-angle cone fixed the angle. It
+also took an undecorated sheet (150 C, H/C 0.35, O/C 0.3, seed 4) from 0 to 115 clashes, because
+the relief's tethered UFF is sensitive to where the hydrogens start. That fix was reverted and
+remains open.
 
 ## What this does not fix
 
