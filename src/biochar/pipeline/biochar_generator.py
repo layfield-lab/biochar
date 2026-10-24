@@ -46,6 +46,11 @@ from ..export.gromacs_export import GromacsExporter
 from .validation import ValidationEngine
 from ..constants import MIN_BUILDABLE_AROMATICITY
 
+# Rebuilds of the compact core while the aromatic/methyl split settles (see
+# _generate_carbon_skeleton). Each re-plans from the ceiling of the core just
+# built; two or three usually agree, and the closest-to-target build is kept.
+_CORE_SPLIT_ITERATIONS = 4
+
 
 @dataclass
 class GeneratorConfig:
@@ -805,34 +810,66 @@ class BiocharGenerator:
             ceiling = _edge_carbon_fraction(skeleton.mol)
             # Estimate the aromatic/aliphatic split (keeps total C ~ N).  Each
             # methyl adds +1 C and a net +2 H, so H/C = ceiling + n(2-ceiling)/N.
-            n_est = round(N * (r - ceiling) / (2.0 - ceiling))
-            n_est = max(1, min(n_est, N - 6))
+            def split(c):
+                n = round(N * (r - c) / (2.0 - c))
+                return max(1, min(n, N - 6))
+
             # Build a COMPACT core (target_h_c=None): the methyls, not
             # elongation, supply the extra hydrogen here, so the aromatic
             # ceiling stays low and the exact methyl count below cannot be
             # driven negative by an already-elongated (overshooting) core.
-            core = assembler.generate(
-                N - n_est,
-                defect_fraction=self.config.defect_fraction,
-                heptagon_fraction=self.config.heptagon_fraction,
-                target_h_c=None,
-            )
-            # Exact methyl count for the core as built.  A saturated aromatic
-            # core carries E edge hydrogens; attaching m methyls gives
-            # H = E + 2m and C = Ca + m, so H/C = target when
-            #   m = (target*Ca - E) / (2 - target).
-            Ca, E = self._aromatic_core_stats(core.mol)
-            m = round((r * Ca - E) / (2.0 - r))
-            m = max(0, min(m, E))
+            #
+            # The split above is estimated from the first pass's ceiling, but
+            # that pass was elongated and the core is compact, with a lower
+            # ceiling -- so the core needs more methyls than were budgeted, and
+            # total C overshot N. Re-plan from
+            # the ceiling of the core actually built until the total is within
+            # size_tolerance, keeping the build that best meets the H/C and then N.
+            n_est = split(ceiling)
+            best = None
+            tried = set()
+            for _ in range(_CORE_SPLIT_ITERATIONS):
+                core = assembler.generate(
+                    N - n_est,
+                    defect_fraction=self.config.defect_fraction,
+                    heptagon_fraction=self.config.heptagon_fraction,
+                    target_h_c=None,
+                )
+                # Exact methyl count for the core as built.  A saturated
+                # aromatic core carries E edge hydrogens; attaching m methyls
+                # gives H = E + 2m and C = Ca + m, so H/C = target when
+                #   m = (target*Ca - E) / (2 - target).
+                Ca, E = self._aromatic_core_stats(core.mol)
+                m = round((r * Ca - E) / (2.0 - r))
+                m = max(0, min(m, E))
+                # Composition first, size second: a smaller core can cap m at
+                # its edge-site count and fall short of the H/C, which is the
+                # request this path exists for. Misses inside 0.02 count as hits.
+                hc = (E + 2 * m) / (Ca + m) if Ca + m else 0.0
+                score = (max(0.0, abs(hc - r) - 0.02), abs(Ca + m - N))
+                if best is None or score < best[0]:
+                    best = (score, core, Ca, E, m, hc)
+                # Re-planning is for the overshoot only. A plan within
+                # tolerance is kept as it was (a different split changes which
+                # structure the comparison below picks), and so is one that
+                # falls short: that happens when m is capped at the edge sites,
+                # and a smaller core would only fall shorter.
+                if Ca + m - N <= self.config.size_tolerance * N:
+                    break
+                # The core build is deterministic for a given size, so a
+                # plan seen before would only rebuild the same core.
+                tried.add(n_est)
+                n_est = split(E / Ca) if Ca else n_est
+                if n_est in tried:
+                    break
+            _, core, Ca, E, m, cand_hc = best
             if m > 0:
                 rng = random.Random(self.config.seed)
                 decorated = attach_aliphatic_carbons(core.mol, m, rng)
                 cand = PAHAssembler._make_skeleton(decorated)
-                cand_hc = (E + 2 * m) / (Ca + m)
             else:
                 # Core already meets/exceeds the target on its own.
                 cand = core
-                cand_hc = (E / Ca) if Ca else 0.0
             # Keep the decorated candidate only if it lands closer to the target
             # than the first-pass aromatic skeleton.  A benzene-grown "compact"
             # core is not always minimally condensed, so it can overshoot; in

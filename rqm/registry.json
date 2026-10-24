@@ -276,6 +276,14 @@
     "title": "A temperature is not judged against a property this config never derives",
     "type": "scenario"
   },
+  "rq-0d7ac25a": {
+    "decl": "## Methyl Decoration Keeps the Requested Size",
+    "file": "generation-config",
+    "level": 2,
+    "refs": [],
+    "title": "Methyl Decoration Keeps the Requested Size",
+    "type": "section"
+  },
   "rq-0e187d3e": {
     "decl": "## Feature API",
     "file": "gromacs-export",
@@ -584,6 +592,18 @@
       }
     ],
     "title": "Copied sheets do not share coordinates",
+    "type": "scenario"
+  },
+  "rq-20d8d5ea": {
+    "decl": "Scenario: No two lattice carbons sit at bond distance without a bond",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "No two lattice carbons sit at bond distance without a bond",
     "type": "scenario"
   },
   "rq-212c17a8": {
@@ -1813,6 +1833,18 @@
     "title": "Feature API",
     "type": "section"
   },
+  "rq-5e74710c": {
+    "decl": "Scenario: An elongated skeleton stays within a ring or two of the request",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An elongated skeleton stays within a ring or two of the request",
+    "type": "scenario"
+  },
   "rq-5f4e2e68": {
     "decl": "- `VALID_FEEDSTOCKS: Tuple[str, ...]`",
     "file": "temperature-model",
@@ -1917,6 +1949,18 @@
       }
     ],
     "title": "A hydroxyl on a large sheet is bent, not linear",
+    "type": "scenario"
+  },
+  "rq-65ff7e4e": {
+    "decl": "Scenario: Methyl decoration never takes the size more than ten percent over the request",
+    "file": "generation-config",
+    "refs": [
+      {
+        "file": "tests/test_hc_control.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Methyl decoration never takes the size more than ten percent over the request",
     "type": "scenario"
   },
   "rq-6659180d": {

@@ -94,6 +94,33 @@ Feature: Clamp a derived aromaticity the builder cannot realise
     And a warning names the clamp
 ```
 
+## Methyl Decoration Keeps the Requested Size <!-- rq-0d7ac25a -->
+
+When the requested H/C is above what an aromatic sheet of the requested size can carry, the
+skeleton is split into a compact aromatic core plus pendant methyls, and the total carbon count is
+the core plus the methyls. The split is a prediction: the methyl count follows from the core's
+edge, and the core's edge is only known once it is built.
+
+It was predicted from the wrong sheet. The split came from the ceiling of the elongated first pass,
+but the core is built compact, with a lower ceiling, so it needed more methyls than were budgeted.
+Wood et al.'s BC400 composition (104 carbons, H/C 0.635) came back with 117-120. The split is now
+re-planned from the core actually built, and among the builds tried the one that best meets the
+H/C, then the size, is kept: the H/C is what this path exists for.
+
+The promise is one-sided. Each methyl needs an edge site, so at a high enough H/C (around 1.0 at
+150 carbons) the methyls run out of sites and the structure falls short of the requested size
+instead. Re-planning is not attempted then, since a smaller core only has fewer sites.
+
+```gherkin
+Feature: Keep the requested size while reaching a high H/C
+
+  @rq-65ff7e4e
+  Scenario: Methyl decoration never takes the size more than ten percent over the request
+    Given a target H/C above what an aromatic sheet of the requested size can carry
+    When a structure is generated across several seeds
+    Then its total carbon count is no more than ten percent over the request
+```
+
 ## Impossible Requests Are Refused at Construction <!-- rq-31553668 -->
 
 Some requests cannot produce a structure at all. Those raise from `GeneratorConfig(...)`, before
