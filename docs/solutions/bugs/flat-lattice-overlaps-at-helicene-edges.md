@@ -137,7 +137,13 @@ Count every error kind, or check finiteness first.
 - **Oversized skeletons.** Some elongated builds overshoot their carbon target (asked for 200, got
   310) and leave unbonded ring carbons at bond distance (fjords). Relief makes them no worse but
   can't rescue them. That's a skeleton-builder defect.
-- **The Kamada–Kawai path.** When H/C-reaching aliphatic carbons are untagged, the sheet takes the
-  Kamada–Kawai layout, not the hex lattice, and its residual contacts (≤0.1 Å inside the floor)
-  are outside this path.
+- **The Kamada–Kawai path.** When H/C-reaching aliphatic carbons were untagged, the sheet took the
+  Kamada–Kawai layout, not the hex lattice. This bullet first said its residual contacts were at
+  most ~0.1 Å inside the floor. That understated them: at 150 C, H/C 0.35, seeds 2, 3 and 5 failed
+  strict on 11–17 clashes up to **0.40 Å** inside it. Fixed in #66: decorated sheets now stay on
+  the lattice, with a free embedding kept only when it leaves fewer errors (rq-d6926052).
+- **Fjords on an otherwise clean sheet.** At 150 C, H/C 0.35, seed 4 (no decoration) keeps two
+  contacts after relief, 0.11 and 0.14 Å inside the floor. Both are 1–4 pairs at fjords: the
+  tethered relaxation moved fjord atoms 1.8–4 Å and compressed their neighbours. Revisiting the
+  tether radius or tilt limits is a separate change.
 - **Composition.** 650–800 °C targets below a skeleton's H/C floor are #63.

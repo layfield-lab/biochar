@@ -208,53 +208,135 @@ def _read_skeleton_positions(mol: Chem.Mol) -> dict:
     return positions
 
 
-def _place_untagged_heavy_atom(
-    mol: Chem.Mol, idx: int, placed: dict, fallback_pos: np.ndarray
-) -> np.ndarray:
+def _lattice_covers_skeleton(mol: Chem.Mol, skel_pos: dict) -> bool:
     """
-    Compute a 2D position for a heavy atom (typically an oxygen) that
-    lacks the hex-lattice tag, by radiating outward from its tagged
-    heavy-atom neighbour.
+    Whether the hex-lattice tags are enough to lay *mol* out flat: every ring
+    carbon is tagged, and every untagged heavy atom hangs, through other
+    untagged atoms, off a tagged one.
+
+    Untagged atoms outside the rings -- pendant methyls from aliphatic
+    decoration, a carboxyl carbon, the oxygens -- are placed from their parent
+    by :func:`_offlattice_layout`. Requiring *every* carbon to be tagged sent a
+    whole sheet to the Kamada-Kawai fallback over one methyl (issue #66).
     """
-    atom = mol.GetAtomWithIdx(idx)
-    heavy_nbrs = [
-        n for n in atom.GetNeighbors() if n.GetAtomicNum() != 1
-    ]
-    parents = [n for n in heavy_nbrs if n.GetIdx() in placed]
-    if not parents:
-        return fallback_pos.copy()
+    if not skel_pos:
+        return False
+    # *mol* is the throwaway heavy-atom copy, whose ring information is never
+    # initialised; perceiving it here touches nothing the caller holds.
+    Chem.FastFindRings(mol)
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() == 6 and atom.IsInRing() and atom.GetIdx() not in skel_pos:
+            return False
+    reached, stack = set(skel_pos), list(skel_pos)
+    while stack:
+        for nbr in mol.GetAtomWithIdx(stack.pop()).GetNeighbors():
+            if nbr.GetAtomicNum() != 1 and nbr.GetIdx() not in reached:
+                reached.add(nbr.GetIdx())
+                stack.append(nbr.GetIdx())
+    return all(a.GetIdx() in reached for a in mol.GetAtoms() if a.GetAtomicNum() != 1)
 
-    parent = parents[0]
-    par_pos = placed[parent.GetIdx()]
 
-    # Direction: away from parent's other heavy neighbours
-    other = [
-        n for n in parent.GetNeighbors()
-        if n.GetAtomicNum() != 1 and n.GetIdx() != idx and n.GetIdx() in placed
-    ]
-    if other:
-        nbr_avg = np.mean([placed[n.GetIdx()] for n in other], axis=0)
-        direction = par_pos - nbr_avg
-    else:
-        direction = np.array([1.0, 0.0, 0.0])
-    norm = float(np.linalg.norm(direction))
-    if norm < 1e-8:
-        direction = np.array([1.0, 0.0, 0.0])
-    else:
-        direction = direction / norm
+def _bond_slots(axis: np.ndarray, side: np.ndarray, n_bonds: int, element: int) -> List[np.ndarray]:
+    """
+    Unit directions of the bonds an off-lattice atom makes besides the one to
+    its parent, which lies along -*axis*. In-plane directions come first, so
+    heavy children take them and hydrogens take what is left.
 
-    # Bond length by element pair
-    sym_parent = parent.GetSymbol()
-    sym_this = atom.GetSymbol()
-    if sym_parent == "C" and sym_this == "O":
-        bl = 1.36
-    elif sym_parent == "O" and sym_this == "C":
-        bl = 1.36
-    elif sym_this == "O" or sym_parent == "O":
-        bl = 1.36
-    else:
-        bl = 1.42
-    return par_pos + direction * bl
+    Four bonds is tetrahedral: one bond in the sheet plane on *side*, two
+    symmetric above and below it. Three is trigonal in plane. Two is linear for
+    carbon and bent (tetrahedral angle, in plane) for anything else -- an ether
+    or hydroxyl oxygen.
+    """
+    z = np.cross(axis, side)
+    if n_bonds >= 4:
+        along, across = 1.0 / 3.0, np.sqrt(8.0) / 3.0  # cos/sin of 180 - 109.47
+        return [
+            along * axis + across * (np.cos(phi) * side + np.sin(phi) * z)
+            for phi in np.radians([0.0, 120.0, 240.0])
+        ]
+    if n_bonds == 3:
+        return [0.5 * axis + np.sqrt(3.0) / 2.0 * sign * side for sign in (1.0, -1.0)]
+    if n_bonds == 2:
+        if element == 6:
+            return [axis]
+        return [1.0 / 3.0 * axis + np.sqrt(8.0) / 3.0 * side]
+    return []
+
+
+def _offlattice_bond_length(parent: Chem.Atom, atom: Chem.Atom, bond: Chem.Bond) -> float:
+    """Bond length for an off-lattice atom: phenolic C-O keeps its 1.36 Å;
+    anything else is the bond-order-scaled covalent radii sum, which is also
+    what :meth:`GeometryValidator._validate_bond_lengths` expects."""
+    pair = {parent.GetAtomicNum(), atom.GetAtomicNum()}
+    if pair == {6, 8} and (parent.GetIsAromatic() or atom.GetIsAromatic()):
+        return 1.36
+    radii = COVALENT_RADII.get(parent.GetSymbol(), 0.76) + COVALENT_RADII.get(atom.GetSymbol(), 0.76)
+    return radii * BOND_ORDER_LENGTH_FACTORS.get(str(bond.GetBondType()), 1.00)
+
+
+def _offlattice_layout(
+    mol: Chem.Mol, placed: dict, chemistry: Chem.Mol
+) -> Tuple[dict, dict]:
+    """
+    Place every untagged heavy atom of *mol* (all atoms explicit, hydrogens
+    included) outward from the tagged ones, and return ``(positions, slots)``.
+
+    Bond lengths are read from *chemistry*, the same molecule before it was
+    kekulised or de-aromatised for embedding: the working copy has lost the
+    aromatic flags that tell a phenolic C-O from an aliphatic one.
+
+    A child of a ring atom points radially out of the sheet, away from the
+    ring atom's other placed neighbours. A child of an off-lattice atom
+    takes one of that atom's :func:`_bond_slots`, so a methyl is tetrahedral and
+    a carboxyl trigonal instead of every substituent stacking on one line.
+    *slots* maps each off-lattice atom to the directions still free for its
+    hydrogens. Atoms are placed breadth-first in index order, so the layout is
+    deterministic.
+    """
+    positions = dict(placed)
+    slots: dict = {}
+    frontier = sorted(placed)
+    while frontier:
+        next_frontier = []
+        for p_idx in frontier:
+            parent = mol.GetAtomWithIdx(p_idx)
+            for atom in sorted(parent.GetNeighbors(), key=lambda a: a.GetIdx()):
+                idx = atom.GetIdx()
+                if atom.GetAtomicNum() == 1 or idx in positions:
+                    continue
+                bl = _offlattice_bond_length(
+                    chemistry.GetAtomWithIdx(p_idx), chemistry.GetAtomWithIdx(idx),
+                    chemistry.GetBondBetweenAtoms(p_idx, idx),
+                )
+                if p_idx in slots:
+                    direction = slots[p_idx].pop(0)
+                else:
+                    others = [
+                        positions[n.GetIdx()] for n in parent.GetNeighbors()
+                        if n.GetIdx() != idx and n.GetIdx() in positions
+                    ]
+                    direction = positions[p_idx] - np.mean(others, axis=0) if others else np.array([1.0, 0.0, 0.0])
+                    norm = float(np.linalg.norm(direction))
+                    direction = direction / norm if norm > 1e-8 else np.array([1.0, 0.0, 0.0])
+                pos = positions[p_idx] + direction * bl
+                positions[idx] = pos
+
+                # The in-plane slot goes on whichever side has more room.
+                side = np.cross(np.array([0.0, 0.0, 1.0]), direction)
+                if np.linalg.norm(side) < 1e-8:
+                    side = _perpendicular_unit(direction)
+                side = side / np.linalg.norm(side)
+                crowd = [q for k, q in positions.items() if k not in (idx, p_idx)]
+                if crowd:
+                    def clearance(s):
+                        probe = pos + s * bl
+                        return min(float(np.linalg.norm(probe - q)) for q in crowd)
+                    if clearance(-side) > clearance(side):
+                        side = -side
+                slots[idx] = _bond_slots(direction, side, atom.GetDegree(), atom.GetAtomicNum())
+                next_frontier.append(idx)
+        frontier = next_frontier
+    return positions, slots
 
 
 def _bent_hydrogen_position(
@@ -847,6 +929,10 @@ class CoordinateGenerator:
         # running MMFF/UFF on the dearomatized mol (all-SINGLE bonds) would
         # incorrectly treat sp2 carbons as sp3 and buckle the flat sheet.
         self.used_hex_lattice: bool = False
+        # Carbons the lattice path placed off the lattice (pendant methyls,
+        # -CH2- of an aliphatic hydroxyl, carboxyl carbons).  Zero unless
+        # used_hex_lattice is True.
+        self.offlattice_carbons: int = 0
         if seed is not None:
             np.random.seed(seed)
 
@@ -858,6 +944,7 @@ class CoordinateGenerator:
         use_distance_geometry: bool = True,
         max_embedding_attempts: int = 3,
         max_ff_iterations: int = None,
+        use_hex_lattice: bool = True,
     ) -> Tuple[Chem.Mol, np.ndarray]:
         """
         Generate 3D coordinates for molecule with enhanced relaxation.
@@ -869,6 +956,8 @@ class CoordinateGenerator:
             use_distance_geometry: Use distance geometry for coordinate generation
             max_embedding_attempts: Number of independent embedding attempts (default 3)
             max_ff_iterations: Max force field iterations (default: 500 for large molecules, 300 for small)
+            use_hex_lattice: If False, a large molecule takes the Kamada-Kawai
+                layout even when it carries hex-lattice positions
 
         Returns:
             (mol_with_coords, coords_array)
@@ -922,6 +1011,7 @@ class CoordinateGenerator:
         best_mol = None
         best_energy = float('inf')
         self.used_hex_lattice = False  # reset each call
+        self.offlattice_carbons = 0
 
         if use_2d_first:
             # Produce a kekulized (or de-aromatized) working copy so that
@@ -946,45 +1036,34 @@ class CoordinateGenerator:
                 # 2. Kamada-Kawai spring layout (fallback when props absent).
                 #    Works well up to ~100 atoms; degrades at 200-500 atoms.
                 skel_pos = _read_skeleton_positions(mol_no_h)
-                n_carbons_nh = sum(
-                    1 for a in mol_no_h.GetAtoms() if a.GetAtomicNum() == 6
-                )
-                use_skel = bool(skel_pos) and len(skel_pos) >= n_carbons_nh
+                use_skel = use_hex_lattice and _lattice_covers_skeleton(mol_no_h, skel_pos)
                 if use_skel:
                     self.used_hex_lattice = True
+                    self.offlattice_carbons = sum(
+                        1 for a in mol_no_h.GetAtoms()
+                        if a.GetAtomicNum() == 6 and a.GetIdx() not in skel_pos
+                    )
 
-                flat_heavy = np.zeros((mol_no_h.GetNumAtoms(), 3))
+                # Off-lattice atoms' remaining bond directions, keyed by
+                # mol_copy index; their hydrogens are placed along these.
+                h_slots: dict = {}
                 if use_skel:
-                    # Carbon positions come directly from hex-lattice geometry.
-                    # Oxygens / other heteroatoms are placed by radiating from
-                    # their tagged parent carbon.
-                    placed: dict = {}
-                    # First pass: place carbons (all tagged)
-                    for atom in mol_no_h.GetAtoms():
-                        idx = atom.GetIdx()
-                        if idx in skel_pos:
-                            flat_heavy[idx] = skel_pos[idx]
-                            placed[idx] = skel_pos[idx]
-                    # Second pass: place untagged heteroatoms (oxygens)
-                    for atom in mol_no_h.GetAtoms():
-                        idx = atom.GetIdx()
-                        if idx not in placed:
-                            pos = _place_untagged_heavy_atom(
-                                mol_no_h, idx, placed,
-                                fallback_pos=flat_heavy[max(placed, key=lambda k: k)] + np.array([1.36, 0.0, 0.0])
-                                if placed else np.zeros(3),
-                            )
-                            flat_heavy[idx] = pos
-                            placed[idx] = pos
+                    # Ring atoms come directly from hex-lattice geometry.
+                    # Everything else -- oxygens, pendant methyls, carboxyl
+                    # carbons -- is placed outward from its tagged parent.
+                    heavy_pos, h_slots = _offlattice_layout(
+                        mol_copy,
+                        {heavy_atom_indices[nh]: pos for nh, pos in skel_pos.items()},
+                        chemistry=mol,
+                    )
                 else:
                     # Fallback: kamada-kawai spring layout
                     flat_heavy = _heavy_atom_flat_layout(mol_no_h, seed=self.seed)
-
-                # Map mol_no_h atom indices (0..Nheavy-1) back to mol_copy
-                # heavy-atom indices (which can interleave with H indices).
-                heavy_pos = {}  # mol_copy_idx -> np.array([x, y, z])
-                for nh_idx, orig_idx in enumerate(heavy_atom_indices):
-                    heavy_pos[orig_idx] = flat_heavy[nh_idx].copy()
+                    # Map mol_no_h atom indices (0..Nheavy-1) back to mol_copy
+                    # heavy-atom indices (which can interleave with H indices).
+                    heavy_pos = {}  # mol_copy_idx -> np.array([x, y, z])
+                    for nh_idx, orig_idx in enumerate(heavy_atom_indices):
+                        heavy_pos[orig_idx] = flat_heavy[nh_idx].copy()
 
                 # Build full coordinate array; start with heavy atoms
                 all_coords = np.zeros((mol_copy.GetNumAtoms(), 3))
@@ -999,6 +1078,13 @@ class CoordinateGenerator:
                     parent = atom.GetNeighbors()[0]
                     par_idx = parent.GetIdx()
                     par_pos = heavy_pos.get(par_idx, all_coords[par_idx])
+
+                    # An off-lattice carbon (a methyl, a -CH2-) is sp3: its
+                    # hydrogens take the tetrahedral directions its heavy
+                    # neighbours left free.  Radially they would all coincide.
+                    if parent.GetAtomicNum() == 6 and h_slots.get(par_idx):
+                        all_coords[idx] = par_pos + h_slots[par_idx].pop(0) * 1.09
+                        continue
 
                     # Direction: opposite to average of other neighbor directions
                     other_nbrs = [
