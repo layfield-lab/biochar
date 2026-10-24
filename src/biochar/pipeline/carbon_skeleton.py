@@ -946,7 +946,7 @@ def _grow_graph(
             fusable.sort(key=lambda e: (-_edge_neighbor_degree(G, e[0], e[1]), rng.random()))
             for u, v in fusable:
                 if _hexagon_new_atom_count(G, positions, u, v) % 2 == 1:
-                    next_node = _fuse_hexagon(G, u, v, next_node, positions=positions)
+                    _fuse_hexagon(G, u, v, next_node, positions=positions)
                     _add_missing_lattice_bonds(G, positions)
                     break
         return G

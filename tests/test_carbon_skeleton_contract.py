@@ -165,8 +165,10 @@ class TestCurvedSheets:
             out = subprocess.run(
                 [sys.executable, "-c", code], capture_output=True, text=True, timeout=60
             )
-        except subprocess.TimeoutExpired:
-            pytest.fail("RDKit aromaticity perception on a 400-C curved sheet ran past 60 s")
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError(
+                "RDKit aromaticity perception on a 400-C curved sheet ran past 60 s"
+            ) from exc
         assert out.returncode == 0, out.stderr[-2000:]
         elapsed, bare = out.stdout.split()
         assert int(bare) == 0, f"{bare} ring bonds were left non-aromatic"
