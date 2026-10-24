@@ -248,8 +248,8 @@ def _bond_slots(axis: np.ndarray, side: np.ndarray, n_bonds: int, element: int) 
     or hydroxyl oxygen.
     """
     z = np.cross(axis, side)
+    along, across = 1.0 / 3.0, np.sqrt(8.0) / 3.0  # cos/sin of 180 - 109.47
     if n_bonds >= 4:
-        along, across = 1.0 / 3.0, np.sqrt(8.0) / 3.0  # cos/sin of 180 - 109.47
         return [
             along * axis + across * (np.cos(phi) * side + np.sin(phi) * z)
             for phi in np.radians([0.0, 120.0, 240.0])
@@ -259,7 +259,7 @@ def _bond_slots(axis: np.ndarray, side: np.ndarray, n_bonds: int, element: int) 
     if n_bonds == 2:
         if element == 6:
             return [axis]
-        return [1.0 / 3.0 * axis + np.sqrt(8.0) / 3.0 * side]
+        return [along * axis + across * side]
     return []
 
 

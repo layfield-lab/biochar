@@ -958,7 +958,9 @@ class BiocharGenerator:
                 free_coords, free_valid, free_errors = self._refine_free_embedding(
                     free, free_mol, free_coords
                 )
-                if len(free_errors) < len(errors):
+                # validate_geometry stops at the first NaN with a single
+                # error, so a non-finite embedding must not win on count.
+                if np.all(np.isfinite(free_coords)) and len(free_errors) < len(errors):
                     mol, coords, valid, errors = free_mol, free_coords, free_valid, free_errors
         else:
             coords, valid, errors = self._refine_free_embedding(generator, mol, coords)

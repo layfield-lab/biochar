@@ -331,6 +331,34 @@ class TestDecoratedSheetsKeepTheLattice:
         assert len(lengths) == 3
         assert lengths == pytest.approx([1.36] * 3, abs=1e-6)
 
+    # rq-91985117 -- deeper off-lattice groups: -CH2-OH and a carboxyl
+    def test_hydroxymethyl_and_carboxyl_keep_their_angles(self):
+        sheet = Chem.RWMol(_methyl_decorated_sheet())
+        methyl = next(a.GetIdx() for a in sheet.GetAtoms()
+                      if a.GetAtomicNum() == 6 and not a.HasProp("init_x"))
+        hydroxyl_o = sheet.AddAtom(Chem.Atom(8))
+        sheet.AddBond(methyl, hydroxyl_o, Chem.BondType.SINGLE)
+        site = next(a.GetIdx() for a in sheet.GetAtoms() if a.GetIsAromatic() and a.GetDegree() < 3)
+        acid_c = sheet.AddAtom(Chem.Atom(6))
+        sheet.AddBond(site, acid_c, Chem.BondType.SINGLE)
+        acid_o = [sheet.AddAtom(Chem.Atom(8)) for _ in range(2)]
+        sheet.AddBond(acid_c, acid_o[0], Chem.BondType.DOUBLE)
+        sheet.AddBond(acid_c, acid_o[1], Chem.BondType.SINGLE)
+        mol = sheet.GetMol()
+        mol.UpdatePropertyCache(strict=False)
+
+        gen = CoordinateGenerator(seed=0)
+        out, coords = gen.generate_3d_coordinates(mol)
+
+        assert gen.used_hex_lattice
+        assert GeometryValidator._validate_bond_lengths(out, coords) == []
+        ring_c = next(n.GetIdx() for n in out.GetAtomWithIdx(methyl).GetNeighbors() if n.IsInRing())
+        assert _angle(coords[ring_c], coords[methyl], coords[hydroxyl_o]) == pytest.approx(109.47, abs=2.0)
+        assert _angle(coords[acid_o[0]], coords[acid_c], coords[acid_o[1]]) == pytest.approx(120.0, abs=2.0)
+        assert _angle(coords[site], coords[acid_c], coords[acid_o[0]]) == pytest.approx(120.0, abs=2.0)
+        # Not asserted: the C-O-H angle. Crowded hydroxyl hydrogens are moved
+        # by _optimize_h_positions, whose z offsets bend it (a separate defect).
+
     # rq-91985117
     def test_a_methyl_is_a_substituent_the_relief_can_tilt(self):
         out, _coords = CoordinateGenerator(seed=0).generate_3d_coordinates(
@@ -408,7 +436,19 @@ class TestDecoratedSheetFallback:
         # Seed 4 has no off-lattice carbon, and its relief leaves two
         # fjord contacts (issue #66, "Also seen").
         flags = _spy_embeddings(monkeypatch)
+        seen = {}
+        relieve = CoordinateGenerator.relieve_lattice_crowding
+
+        def relieve_spy(self, mol, coords):
+            out = relieve(self, mol, coords)
+            seen["offlattice"] = self.offlattice_carbons
+            seen["clashes"] = len(_clash_pairs(mol, out))
+            return out
+
+        monkeypatch.setattr(CoordinateGenerator, "relieve_lattice_crowding", relieve_spy)
         BiocharGenerator(GeneratorConfig(
             target_num_carbons=150, H_C_ratio=0.35, O_C_ratio=0.0, seed=4, strict=False,
         )).generate()
+        # The premise, or this test passes without reaching the gated branch.
+        assert seen["offlattice"] == 0 and seen["clashes"] > 0
         assert flags == [True]
