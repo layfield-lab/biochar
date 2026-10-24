@@ -9,6 +9,7 @@ so each is checked directly on the generated molecule.
 import logging
 import math
 import random
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -346,7 +347,8 @@ class TestTypingAndRecords:
         _gro, top, itp = gen.export_gromacs(output_directory=str(tmp_path), basename="isl")
         census = gen.linked_units.describe()
         for path in (top, itp):
-            assert census in open(path).read()
+            header = Path(path).read_text()
+            assert census in header
 
     # rq-420e40ce
     def test_result_carries_the_census(self):
