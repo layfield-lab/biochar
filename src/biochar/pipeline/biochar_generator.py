@@ -28,6 +28,8 @@ from .heteroatom_assignment import (
     _fix_heteroatom_bond_types,
 )
 from .multi_unit import (
+    LINKER_TYPES,
+    MIN_UNIT_CARBONS,
     LinkedSkeleton,
     build_linked_skeleton,
     embed_linked_units,
@@ -369,8 +371,6 @@ class GeneratorConfig:
                         f"set linked_units=True to use it"
                     )
             return
-        from .multi_unit import LINKER_TYPES, MIN_UNIT_CARBONS
-
         if self.num_units is not None:
             if isinstance(self.num_units, bool) or not isinstance(self.num_units, int) \
                     or self.num_units < 1:
@@ -766,13 +766,19 @@ class BiocharGenerator:
         if self.config.linked_units:
             plan = plan_units(self.config, random.Random(self.config.seed))
             if plan.num_units > 1:
+                # One base seed for every linked stage. seed=None means a fresh
+                # structure per call, as on the fused path, so draw it here
+                # rather than letting each stage fall back to a fixed value.
+                self._linked_seed = (
+                    random.SystemRandom().randrange(2 ** 31)
+                    if self.config.seed is None else int(self.config.seed)
+                )
                 r = None if self.config.functional_groups else self.config.H_C_ratio
                 skeleton, self.linked_units = build_linked_skeleton(
-                    self.config, plan, self._aliphatic_enabled(r)
+                    self.config, plan, self._aliphatic_enabled(r), self._linked_seed
                 )
                 logger.info("Linked skeleton: %s", self.linked_units.describe())
                 return skeleton
-            # One unit is the fused sheet; build it exactly as without the opt-in.
         assembler = PAHAssembler(seed=self.config.seed)
         N = self.config.target_num_carbons
         # Explicit functional groups specify a precise composition and carry
@@ -906,7 +912,6 @@ class BiocharGenerator:
 
         return mol, comp
 
-    # Derived seeds tried when the oxygen stage bridges two linked units.
     _LINKED_OXYGEN_ATTEMPTS = 5
 
     def _assign_oxygens_linked(self, mol: Chem.Mol) -> Tuple[Chem.Mol, CompositionResult]:
@@ -921,7 +926,7 @@ class BiocharGenerator:
         """
         n_c = sum(1 for a in mol.GetAtoms() if a.GetAtomicNum() == 6)
         o_c = max(0.0, self.config.O_C_ratio - self.linked_units.num_linker_oxygens / max(n_c, 1))
-        base = 0 if self.config.seed is None else int(self.config.seed)
+        base = self._linked_seed
         for attempt in range(self._LINKED_OXYGEN_ATTEMPTS):
             assigner = OxygenAssigner(seed=base + 7919 * attempt,
                                       max_ether_span=self.config.max_ether_span)
@@ -1037,7 +1042,7 @@ class BiocharGenerator:
         if self.linked_units is not None:
             # Flat-sheet embedding would lay the units out coplanar; the linked
             # embedder keeps each unit flat and rotates the links.
-            mol, coords = embed_linked_units(mol, seed=self.config.seed)
+            mol, coords = embed_linked_units(mol, seed=self._linked_seed)
             valid, errors = GeometryValidator.validate_geometry(mol, coords)
             if not valid:
                 print("Warning: Geometry validation issues:")

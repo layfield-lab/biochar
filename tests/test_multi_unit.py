@@ -207,6 +207,25 @@ class TestArchitecture:
                     f"linker carbon {a.GetIdx()} carries a non-bridge oxygen"
                 )
 
+    # rq-2b213b2e -- the smallest accepted budget: a benzene core runs out of
+    # attachment sites, and the build must move on rather than crash.
+    @pytest.mark.parametrize("seed", range(10))
+    def test_five_units_at_the_smallest_budget_build(self, seed):
+        gen = _generate(seed=seed, target_num_carbons=30, num_units=5, H_C_ratio=0.8,
+                        O_C_ratio=0.05, linker_mix={"biaryl": 1.0})
+        assert len(_ring_systems(gen.mol)) == 5
+
+    # rq-a9db6c13 -- seed=None is a fresh structure per call, as on the fused path.
+    def test_unseeded_linked_builds_vary(self):
+        kw = dict(target_num_carbons=60, H_C_ratio=0.45, O_C_ratio=0.1, strict=False,
+                  linked_units=True, num_units=3, linker_mix={"diaryl_ether": 1.0})
+        coords = []
+        for _ in range(3):
+            gen = BiocharGenerator(GeneratorConfig(seed=None, **kw))
+            gen.generate()
+            coords.append(gen.coords)
+        assert not all(c.shape == coords[0].shape and np.allclose(c, coords[0]) for c in coords[1:])
+
     # rq-7705e753
     @pytest.mark.parametrize("seed", [1, 2, 3])
     def test_explicit_bridging_groups_do_not_merge_units(self, seed):

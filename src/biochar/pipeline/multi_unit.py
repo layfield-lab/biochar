@@ -27,13 +27,14 @@ from __future__ import annotations
 import logging
 import math
 import random
-from dataclasses import dataclass, field
+from collections import deque
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from rdkit import Chem
 
-from ..constants import LATTICE_MAX_SHEET_RMS
+from ..constants import LATTICE_MAX_SHEET_RMS, get_covalent_radius
 from .carbon_skeleton import CarbonSkeleton, PAHAssembler, SkeletonError
 from .geometry_3d import (
     GeometryValidator,
@@ -106,7 +107,6 @@ LINKER_MIX_MID_T: Dict[str, float] = {
     "propyl": 0.15,
 }
 
-# Smallest unit: benzene.
 MIN_UNIT_CARBONS = 6
 # Arm sizes PAHAssembler builds exactly (its library); only the core is grown
 # to an arbitrary count, so it is built last and absorbs the remainder.
@@ -133,7 +133,6 @@ class LinkedSkeleton:
     unit_carbons: List[int]
     linker_counts: Dict[str, int]
     num_methyls: int = 0
-    parents: List[int] = field(default_factory=list)
 
     @property
     def num_units(self) -> int:
@@ -384,7 +383,7 @@ def _build_candidate(
     plan: UnitPlan, core_n: int, arm_sizes: Sequence[int], units: _UnitCache,
     sanitize: bool = True,
 ) -> Tuple[Chem.Mol, List[int]]:
-    """Build and join the units of one candidate; return (mol, parents)."""
+    """Build and join the units of one candidate."""
     rng = random.Random(units.seed_base)
     asm = _Assembly()
     asm.add_unit(units.get(core_n, core=True))
@@ -392,7 +391,6 @@ def _build_candidate(
         asm.add_unit(units.get(size, core=False))
 
     used: set = set()
-    parents = [-1]
     for i, linker in enumerate(plan.linkers, start=1):
         if i == 1 or rng.random() < _CORE_PARENT_BIAS:
             parent = 0
@@ -403,22 +401,26 @@ def _build_candidate(
         p_sites = _edge_sites(tmp, asm.units[parent], used)
         c_sites = _edge_sites(tmp, asm.units[i], used)
         if not p_sites:
-            # A small parent can run out of sites; the core rarely does.
-            parent = 0
-            p_sites = _edge_sites(tmp, asm.units[0], used)
+            # A small parent runs out of sites: each link also blocks its
+            # neighbours, so a benzene takes at most three. Try the core, then
+            # every earlier unit.
+            for parent in [0] + list(range(1, i)):
+                p_sites = _edge_sites(tmp, asm.units[parent], used)
+                if p_sites:
+                    break
         if not p_sites or not c_sites:
-            raise RuntimeError("no free edge site to attach a linked unit")
+            # A SkeletonError, so build_linked_skeleton tries the next split.
+            raise SkeletonError("no free edge site to attach a linked unit")
         # Choose among the least crowded few so layouts vary with the seed.
         a = rng.choice(p_sites[: max(1, len(p_sites) // 2)])
         b = rng.choice(c_sites[: max(1, len(c_sites) // 2)])
         asm.link(linker, a, b, i)
         used.update((a, b))
-        parents.append(parent)
-    return asm.mol(sanitize), parents
+    return asm.mol(sanitize)
 
 
 def build_linked_skeleton(
-    config, plan: UnitPlan, aliphatic_enabled: bool
+    config, plan: UnitPlan, aliphatic_enabled: bool, seed: int
 ) -> Tuple[CarbonSkeleton, LinkedSkeleton]:
     """
     Build the linked carbon/oxygen skeleton for *plan*.
@@ -433,7 +435,6 @@ def build_linked_skeleton(
     k = plan.num_units
     budget = N - sum(linker_carbons(t) for t in plan.linkers)
     target = None if config.functional_groups else config.H_C_ratio
-    seed_base = 0 if config.seed is None else int(config.seed)
 
     candidates = []
     seen = set()
@@ -451,12 +452,12 @@ def build_linked_skeleton(
         arms = [MIN_UNIT_CARBONS] * (k - 1)
         candidates.append((budget - sum(arms), arms))
 
-    units = _UnitCache(config, seed_base)
+    units = _UnitCache(config, seed)
     best = None
     failures = []
     for core_n, arms in candidates:
         try:
-            mol, _ = _build_candidate(plan, core_n, arms, units, sanitize=False)
+            mol = _build_candidate(plan, core_n, arms, units, sanitize=False)
         except SkeletonError as exc:
             # Growth fails at some sizes regardless of seed; another core
             # fraction is another size.
@@ -472,7 +473,7 @@ def build_linked_skeleton(
             f"{N} carbons into {k} units: " + "; ".join(failures[:2])
         )
     _, hc, core_n, arms = best
-    mol, parents = _build_candidate(plan, core_n, arms, units)
+    mol = _build_candidate(plan, core_n, arms, units)
 
     methyls = 0
     if target is not None and aliphatic_enabled and target > hc + 0.02:
@@ -483,7 +484,7 @@ def build_linked_skeleton(
         n_est = max(1, min(n_est, core_n - max(arms)))
         for shift in (0, 1, -1, 2, -2):
             try:
-                mol, parents = _build_candidate(plan, core_n - n_est - shift, arms, units)
+                mol = _build_candidate(plan, core_n - n_est - shift, arms, units)
                 n_est += shift
                 break
             except SkeletonError:
@@ -498,8 +499,7 @@ def build_linked_skeleton(
         )
         methyls = max(0, min(round((target * carbons - h_now) / (2.0 - target)), edge))
         if methyls:
-            mol = attach_aliphatic_carbons(mol, methyls, random.Random(config.seed))
-        core_n -= n_est
+            mol = attach_aliphatic_carbons(mol, methyls, random.Random(seed))
 
     unit_carbons = [
         sum(1 for a in mol.GetAtoms() if a.HasProp("unit_id") and a.GetIntProp("unit_id") == u)
@@ -509,7 +509,7 @@ def build_linked_skeleton(
     for t in plan.linkers:
         counts[t] = counts.get(t, 0) + 1
     census = LinkedSkeleton(
-        unit_carbons=unit_carbons, linker_counts=counts, num_methyls=methyls, parents=parents
+        unit_carbons=unit_carbons, linker_counts=counts, num_methyls=methyls
     )
     skeleton = PAHAssembler._make_skeleton(mol)
     total = skeleton.num_carbons
@@ -555,7 +555,6 @@ _BOND_LENGTHS = {
     frozenset((6, 7)): 1.40,
     frozenset((6, 16)): 1.77,
 }
-_COVALENT = {1: 0.31, 6: 0.76, 7: 0.71, 8: 0.66, 16: 1.05}
 
 
 def _bond_length(mol: Chem.Mol, i: int, j: int) -> float:
@@ -568,7 +567,7 @@ def _bond_length(mol: Chem.Mol, i: int, j: int) -> float:
             return 1.23
         carbon = ai if zi == 6 else aj
         return 1.37 if carbon.GetIsAromatic() else 1.43
-    if pair == frozenset((6,)):
+    if zi == zj == 6:
         if ai.GetIsAromatic() and aj.GetIsAromatic():
             return 1.48  # biaryl
         if ai.GetIsAromatic() or aj.GetIsAromatic():
@@ -576,7 +575,7 @@ def _bond_length(mol: Chem.Mol, i: int, j: int) -> float:
         return 1.53
     if pair in _BOND_LENGTHS:
         return _BOND_LENGTHS[pair]
-    return _COVALENT.get(zi, 0.76) + _COVALENT.get(zj, 0.76)
+    return get_covalent_radius(ai.GetSymbol()) + get_covalent_radius(aj.GetSymbol())
 
 
 def _ideal_angle(mol: Chem.Mol, idx: int) -> float:
@@ -659,9 +658,9 @@ def _place_outward(mol: Chem.Mol, coords: np.ndarray, placed: np.ndarray,
                    start: Sequence[int], blocked: set, normal: np.ndarray) -> None:
     """Breadth-first placement of unplaced atoms reachable from *start*, not
     crossing *blocked*. Writes into *coords* and *placed* in place."""
-    queue = list(start)
+    queue = deque(start)
     while queue:
-        x = queue.pop(0)
+        x = queue.popleft()
         atom = mol.GetAtomWithIdx(x)
         nbrs = [n.GetIdx() for n in atom.GetNeighbors()]
         done = [j for j in nbrs if placed[j]]
@@ -797,9 +796,9 @@ class _LinkedLayout:
         """Each unit's atoms plus everything hanging off it (not linkers)."""
         mol = self.mol
         owner = self.unit_of.copy()
-        queue = [i for i in range(mol.GetNumAtoms()) if owner[i] >= 0]
+        queue = deque(i for i in range(mol.GetNumAtoms()) if owner[i] >= 0)
         while queue:
-            x = queue.pop(0)
+            x = queue.popleft()
             for nb in mol.GetAtomWithIdx(x).GetNeighbors():
                 j = nb.GetIdx()
                 if owner[j] < 0 and j not in self.linker_atoms:
@@ -858,7 +857,6 @@ class _LinkedLayout:
             # A substituent with two ring anchors (an in-unit ether bridge)
             # is placed from whichever anchor reaches it first.
             _place_outward(mol, coords, placed, ring, blocked, normal)
-        self.placed_local = placed
         return coords
 
     def pose(self, torsions: Dict[int, List[float]]) -> np.ndarray:
@@ -868,7 +866,6 @@ class _LinkedLayout:
         out = np.zeros((n, 3))
         done = np.zeros(n, dtype=bool)
         z = np.array([0.0, 0.0, 1.0])
-        frames = {0: (np.eye(3), np.zeros(3))}  # unit -> (R, t): global = R @ local + t
         out[self.body[0]] = self.local[self.body[0]]
         done[self.body[0]] = True
         for li, link in enumerate(self.links):
@@ -915,7 +912,6 @@ class _LinkedLayout:
             align = math.atan2(np.cross(ref_now, ref) @ back, ref_now @ ref)
             R = _axis_rotation(back, align + tors[-1]) @ R1
             t = pos[b] - R @ self.local[b]
-            frames[u] = (R, t)
             idx = self.body[u]
             out[idx] = self.local[idx] @ R.T + t
             done[idx] = True
@@ -923,10 +919,6 @@ class _LinkedLayout:
         bridge_atoms = [x for link in self.links for x in link.bridge]
         _place_outward(mol, out, done, bridge_atoms, set(), z)
         return out
-
-    def torsion_counts(self) -> List[int]:
-        # One torsion per bridge atom after the first, plus the child twist.
-        return [max(len(link.bridge), 0) + 1 for link in self.links]
 
     def unit_plane_rms(self, coords: np.ndarray) -> float:
         worst = 0.0
@@ -947,12 +939,16 @@ _EMBED_SWEEPS = 2
 _SWEEP_ANGLES = np.radians(np.arange(0.0, 360.0, 30.0))
 
 
+def _biaryl_twist_ok(angle: float) -> bool:
+    lo, hi = _BIARYL_TWIST_RANGE
+    return lo <= abs(((angle + math.pi) % (2 * math.pi)) - math.pi) <= hi
+
+
 def _sample_torsions(layout: _LinkedLayout, rng: np.random.Generator) -> Dict[int, List[float]]:
     out = {}
     for li, link in enumerate(layout.links):
         count = len(link.bridge) + 1
         tors = list(rng.uniform(0.0, 2 * math.pi, count))
-        # Alkyl torsions start near anti or gauche, where a real chain sits.
         for j in range(count - 1):
             tors[j] = rng.choice([math.pi, math.pi / 3, -math.pi / 3]) + rng.normal(0.0, 0.15)
         if not link.bridge:
@@ -967,7 +963,27 @@ def _overlap_score(coords: np.ndarray, floor: np.ndarray, judged: np.ndarray) ->
     return float(np.where(judged, np.clip(floor - d, 0.0, None), 0.0).sum())
 
 
-def embed_linked_units(mol: Chem.Mol, seed: Optional[int] = None) -> Tuple[Chem.Mol, np.ndarray]:
+def _descend(layout: _LinkedLayout, best_t, best_s: float, floor, judged):
+    """Coordinate descent over each torsion, keeping biaryl twists off-planar.
+
+    Stops at a zero score: nothing can beat it."""
+    for _ in range(_EMBED_SWEEPS):
+        for li, link in enumerate(layout.links):
+            for j in range(len(best_t[li])):
+                for ang in _SWEEP_ANGLES:
+                    if best_s == 0.0:
+                        return best_t, best_s
+                    if not link.bridge and not _biaryl_twist_ok(ang):
+                        continue
+                    trial = {k: list(v) for k, v in best_t.items()}
+                    trial[li][j] = ang
+                    s = _overlap_score(layout.pose(trial), floor, judged)
+                    if s < best_s:
+                        best_t, best_s = trial, s
+    return best_t, best_s
+
+
+def embed_linked_units(mol: Chem.Mol, seed: int) -> Tuple[Chem.Mol, np.ndarray]:
     """
     3D coordinates for a fully decorated linked molecule.
 
@@ -982,7 +998,7 @@ def embed_linked_units(mol: Chem.Mol, seed: Optional[int] = None) -> Tuple[Chem.
     whose units are rotated apart.
     """
     layout = _LinkedLayout(mol)
-    rng = np.random.default_rng(0 if seed is None else seed)
+    rng = np.random.default_rng(seed)
     excluded = _get_excluded_pairs(mol)
     floor, judged = _clash_floor_matrix(mol, set(), excluded)
 
@@ -994,36 +1010,22 @@ def embed_linked_units(mol: Chem.Mol, seed: Optional[int] = None) -> Tuple[Chem.
             best_t, best_s = t, s
         if s == 0.0:
             break
-    # Coordinate descent over each torsion, keeping biaryl twists off-planar.
-    for _ in range(_EMBED_SWEEPS):
-        if best_s == 0.0:
-            break
-        for li, link in enumerate(layout.links):
-            for j in range(len(best_t[li])):
-                for ang in _SWEEP_ANGLES:
-                    if not link.bridge:
-                        lo, hi = _BIARYL_TWIST_RANGE
-                        if not lo <= abs(((ang + math.pi) % (2 * math.pi)) - math.pi) <= hi:
-                            continue
-                    trial = {k: list(v) for k, v in best_t.items()}
-                    trial[li][j] = ang
-                    s = _overlap_score(layout.pose(trial), floor, judged)
-                    if s < best_s:
-                        best_t, best_s = trial, s
+    best_t, best_s = _descend(layout, best_t, best_s, floor, judged)
     coords = layout.pose(best_t)
 
     if _clash_pairs(mol, coords, excluded):
         coords = _tilt_crowded_substituents(mol, coords)
-    if _clash_pairs(mol, coords, excluded):
+    clashes = _clash_pairs(mol, coords, excluded)
+    if clashes:
         relaxed = _tethered_lattice_relax(mol, coords, seed)
         if relaxed is not None:
-            def defects(c):
-                return (
-                    len(GeometryValidator._validate_bond_lengths(mol, c)),
-                    len(_clash_pairs(mol, c, excluded)),
-                )
+            before = (len(GeometryValidator._validate_bond_lengths(mol, coords)), len(clashes))
+            after = (
+                len(GeometryValidator._validate_bond_lengths(mol, relaxed)),
+                len(_clash_pairs(mol, relaxed, excluded)),
+            )
             if (
-                defects(relaxed) <= defects(coords)
+                after <= before
                 and layout.unit_plane_rms(relaxed) <= LATTICE_MAX_SHEET_RMS
             ):
                 coords = relaxed
