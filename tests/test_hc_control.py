@@ -76,15 +76,28 @@ class TestHighHCReached:
             f"target {target}, got {comp.H_C_ratio:.3f}"
         )
 
-    def test_total_carbon_count_preserved(self):
+    # rq-65ff7e4e
+    # (n, H/C, O/C, seed). The 104-carbon cases are Wood et al.'s BC400
+    # composition, which returned 117-120 carbons: the methyl count was planned
+    # from the elongated first pass's ceiling (0.52) but applied to a compact
+    # core whose ceiling is ~0.35, so the core took far more methyls than were
+    # budgeted for.
+    @pytest.mark.parametrize("n,target,o_c,seed", [
+        (100, 0.8, 0.05, 1),
+        (104, 0.635, 0.192, 1),
+        (104, 0.635, 0.192, 2),
+        (104, 0.635, 0.192, 3),
+    ])
+    def test_total_carbon_count_preserved(self, n, target, o_c, seed):
         # Aliphatic decoration must not blow up the carbon count: total C stays
         # within size tolerance of the requested value.
-        n = 100
         mol, comp = _build(
-            target_num_carbons=n, H_C_ratio=0.8, O_C_ratio=0.05,
-            seed=1, strict=False,
+            target_num_carbons=n, H_C_ratio=target, O_C_ratio=o_c,
+            seed=seed, strict=False,
         )
-        assert abs(comp.num_carbons - n) <= 0.1 * n
+        assert abs(comp.num_carbons - n) <= 0.1 * n, (
+            f"requested {n} carbons, got {comp.num_carbons}"
+        )
 
     def test_structure_connected(self):
         mol, comp = _build(

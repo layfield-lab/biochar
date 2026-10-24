@@ -94,6 +94,73 @@ Feature: Clamp a derived aromaticity the builder cannot realise
     And a warning names the clamp
 ```
 
+## Methyl Decoration Keeps the Requested Size <!-- rq-0d7ac25a -->
+
+When the requested H/C is above what an aromatic sheet of the requested size can carry, the
+skeleton is split into a compact aromatic core plus pendant methyls, and the total carbon count is
+the core plus the methyls. The split is a prediction: the methyl count follows from the core's
+edge, and the core's edge is only known once it is built.
+
+It was predicted from the wrong sheet. The split came from the ceiling of the elongated first pass,
+but the core is built compact, with a lower ceiling, so it needed more methyls than were budgeted.
+Wood et al.'s BC400 composition (104 carbons, H/C 0.635) came back with 117-120. The split is now
+re-planned from the core actually built, and among the builds tried the one that best meets the
+H/C, then the size, is kept: the H/C is what this path exists for.
+
+The promise is one-sided. Each methyl needs an edge site, so at a high enough H/C (around 1.0 at
+150 carbons) the methyls run out of sites and the structure falls short of the requested size
+instead. Re-planning is not attempted then, since a smaller core only has fewer sites.
+
+```gherkin
+Feature: Keep the requested size while reaching a high H/C
+
+  @rq-65ff7e4e
+  Scenario: Methyl decoration never takes the size more than ten percent over the request
+    Given a target H/C above what an aromatic sheet of the requested size can carry
+    When a structure is generated across several seeds
+    Then its total carbon count is no more than ten percent over the request
+```
+
+## A Target Below the Sheet's Floor Is Named as Unreachable <!-- rq-edccbabe -->
+
+Every edge carbon of an aromatic sheet carries a hydrogen or a group, and only groups without a
+hydrogen pull H/C below the sheet's edge-carbon fraction. So a target below that fraction is out of
+reach at the requested size, whatever is placed on the edge. Temperature mode asks for exactly
+that: 800 °C softwood wants H/C 0.168, and no sheet of 250 carbons or fewer gets there. Strict mode
+failed every such request with only "H/C ratio exceeds tolerance" (issue #63).
+
+The request is not refused before generation, because decoration can sometimes close the gap.
+When the H/C check fails, the floor is measured from a compact build at the requested size -- not
+from the structure that failed, which may have been elongated toward a higher target and overshot
+-- and when the target is below it, the error names the floor and a size that reaches it. That
+size comes from building flat compact sheets at growing sizes, not from a scaling law, because the
+N^-1/2 scaling of an ideal flake suggested sizes that still fell short. A curved request gets the
+floor without a size: curved builds are slow at size, and carry more edge than flat ones
+(`carbon-skeleton.md`, rq-37961357). A non-strict run logs the same reason as a warning.
+
+```gherkin
+Feature: Explain an H/C the requested size cannot reach
+
+  @rq-907cd890
+  Scenario: An unreachable H/C names the floor and a size that reaches it
+    Given a target H/C below the edge-carbon fraction of a sheet of the requested size
+    When a structure is generated in strict mode and fails the H/C check
+    Then the error names the floor
+    And it names a target_num_carbons whose compact sheet reaches the target
+
+  @rq-cd3dc3c7
+  Scenario: A miss the requested size could reach gets no floor hint
+    Given a target H/C above the compact floor of the requested size
+    When a structure is generated in strict mode and fails the H/C check
+    Then the error does not call the target unreachable
+
+  @rq-ef032605
+  Scenario: A reachable temperature-mode target passes strict validation
+    Given a temperature and feedstock whose H/C a sheet of the requested size can reach
+    When a structure is generated in strict mode across several seeds
+    Then validation passes
+```
+
 ## Impossible Requests Are Refused at Construction <!-- rq-31553668 -->
 
 Some requests cannot produce a structure at all. Those raise from `GeneratorConfig(...)`, before

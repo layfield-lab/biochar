@@ -5,7 +5,9 @@ Main API for generating biochar building blocks for GROMACS simulations.
 """
 
 import dataclasses
+import functools
 import logging
+import math
 import random
 from typing import Callable, Optional, Tuple, List, Dict
 from dataclasses import dataclass
@@ -17,7 +19,12 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-from .carbon_skeleton import PAHAssembler, SkeletonValidator, _edge_carbon_fraction
+from .carbon_skeleton import (
+    PAHAssembler,
+    SkeletonError,
+    SkeletonValidator,
+    _edge_carbon_fraction,
+)
 from .heteroatom_assignment import (
     OxygenAssigner,
     NitrogenSubstitutor,
@@ -45,6 +52,16 @@ from .opls_typing import AtomTyper, ChargeAssigner
 from ..export.gromacs_export import GromacsExporter
 from .validation import ValidationEngine
 from ..constants import MIN_BUILDABLE_AROMATICITY
+
+# Rebuilds of the compact core while the aromatic/methyl split settles (see
+# _generate_carbon_skeleton). Each re-plans from the ceiling of the core just
+# built; two or three usually agree, and the closest-to-target build is kept.
+_CORE_SPLIT_ITERATIONS = 4
+
+# Size search behind the "unreachable H/C" hint (_h_c_floor_reason): each step
+# grows the sheet by a quarter, so 2000 carbons is ~10 compact builds from 100.
+_FLOOR_SEARCH_GROWTH = 1.25
+_FLOOR_SEARCH_MAX_CARBONS = 2000
 
 
 @dataclass
@@ -796,43 +813,77 @@ class BiocharGenerator:
             target_h_c=r,
         )
 
+        edge = _edge_carbon_fraction(skeleton.mol)
+
         # If the requested H/C still exceeds what this (already elongated)
         # aromatic flake can carry, rebuild a smaller aromatic core and decorate
         # it with pendant methyls so the total carbon count stays ~N while the
         # H/C reaches the target.  The methyl count is computed from the core
         # that is *actually built* so elongation and methyls never double-count.
-        if self._aliphatic_enabled(r) and r > _edge_carbon_fraction(skeleton.mol) + 0.02:
-            ceiling = _edge_carbon_fraction(skeleton.mol)
+        if self._aliphatic_enabled(r) and r > edge + 0.02:
+            ceiling = edge
             # Estimate the aromatic/aliphatic split (keeps total C ~ N).  Each
             # methyl adds +1 C and a net +2 H, so H/C = ceiling + n(2-ceiling)/N.
-            n_est = round(N * (r - ceiling) / (2.0 - ceiling))
-            n_est = max(1, min(n_est, N - 6))
+            def split(c):
+                n = round(N * (r - c) / (2.0 - c))
+                return max(1, min(n, N - 6))
+
             # Build a COMPACT core (target_h_c=None): the methyls, not
             # elongation, supply the extra hydrogen here, so the aromatic
             # ceiling stays low and the exact methyl count below cannot be
             # driven negative by an already-elongated (overshooting) core.
-            core = assembler.generate(
-                N - n_est,
-                defect_fraction=self.config.defect_fraction,
-                heptagon_fraction=self.config.heptagon_fraction,
-                target_h_c=None,
-            )
-            # Exact methyl count for the core as built.  A saturated aromatic
-            # core carries E edge hydrogens; attaching m methyls gives
-            # H = E + 2m and C = Ca + m, so H/C = target when
-            #   m = (target*Ca - E) / (2 - target).
-            Ca, E = self._aromatic_core_stats(core.mol)
-            m = round((r * Ca - E) / (2.0 - r))
-            m = max(0, min(m, E))
+            #
+            # The split above is estimated from the first pass's ceiling, but
+            # that pass was elongated and the core is compact, with a lower
+            # ceiling -- so the core needs more methyls than were budgeted, and
+            # total C overshot N. Re-plan from
+            # the ceiling of the core actually built until the total is within
+            # size_tolerance, keeping the build that best meets the H/C and then N.
+            n_est = split(ceiling)
+            best = None
+            tried = set()
+            for _ in range(_CORE_SPLIT_ITERATIONS):
+                core = assembler.generate(
+                    N - n_est,
+                    defect_fraction=self.config.defect_fraction,
+                    heptagon_fraction=self.config.heptagon_fraction,
+                    target_h_c=None,
+                )
+                # Exact methyl count for the core as built.  A saturated
+                # aromatic core carries E edge hydrogens; attaching m methyls
+                # gives H = E + 2m and C = Ca + m, so H/C = target when
+                #   m = (target*Ca - E) / (2 - target).
+                Ca, E = self._aromatic_core_stats(core.mol)
+                m = round((r * Ca - E) / (2.0 - r))
+                m = max(0, min(m, E))
+                # Composition first, size second: a smaller core can cap m at
+                # its edge-site count and fall short of the H/C, which is the
+                # request this path exists for. Misses inside 0.02 count as hits.
+                hc = (E + 2 * m) / (Ca + m) if Ca + m else 0.0
+                score = (max(0.0, abs(hc - r) - 0.02), abs(Ca + m - N))
+                if best is None or score < best[0]:
+                    best = (score, core, Ca, E, m, hc)
+                # Re-planning is for the overshoot only. A plan within
+                # tolerance is kept as it was (a different split changes which
+                # structure the comparison below picks), and so is one that
+                # falls short: that happens when m is capped at the edge sites,
+                # and a smaller core would only fall shorter.
+                if Ca + m - N <= self.config.size_tolerance * N:
+                    break
+                # The core build is deterministic for a given size, so a
+                # plan seen before would only rebuild the same core.
+                tried.add(n_est)
+                n_est = split(E / Ca) if Ca else n_est
+                if n_est in tried:
+                    break
+            _, core, Ca, E, m, cand_hc = best
             if m > 0:
                 rng = random.Random(self.config.seed)
                 decorated = attach_aliphatic_carbons(core.mol, m, rng)
                 cand = PAHAssembler._make_skeleton(decorated)
-                cand_hc = (E + 2 * m) / (Ca + m)
             else:
                 # Core already meets/exceeds the target on its own.
                 cand = core
-                cand_hc = (E / Ca) if Ca else 0.0
             # Keep the decorated candidate only if it lands closer to the target
             # than the first-pass aromatic skeleton.  A benzene-grown "compact"
             # core is not always minimally condensed, so it can overshoot; in
@@ -1203,15 +1254,102 @@ class BiocharGenerator:
 
         if not is_valid:
             logger.error("Validation FAILED with %d error(s): %s", len(errors), "; ".join(errors))
+            reason = self._h_c_floor_reason(composition, errors)
+            if reason:
+                logger.warning(reason)
             if self.config.strict:
                 raise ValidationError(
                     f"Strict mode: structure failed validation with "
                     f"{len(errors)} error(s): " + "; ".join(errors)
+                    + (f". {reason}" if reason else "")
                 )
         else:
             logger.info("Validation PASSED")
             if warnings:
                 logger.warning("%d validation warning(s): %s", len(warnings), "; ".join(warnings))
+
+    def _h_c_floor_reason(
+        self, composition: CompositionResult, errors: List[str]
+    ) -> Optional[str]:
+        """Why an H/C miss happened, when the target is below what the size allows.
+
+        The H/C check alone says only that the ratio missed. Every edge carbon
+        of an aromatic sheet carries a hydrogen or a group, so a sheet's
+        edge-carbon fraction is the lowest H/C it reaches, and the most compact
+        sheet of the requested size sets the floor. Measured here, on the
+        failure path only, from a compact build -- not from the structure that
+        failed, which may have been elongated toward a higher target and
+        overshot. When the compact sheet reaches the target, the miss had
+        another cause and no hint is given (issue #63).
+
+        The size that reaches it is measured too: the N^-1/2 edge scaling of an
+        ideal flake suggested 300 carbons for 800 °C softwood where 300-carbon
+        sheets still sit at 0.19-0.23. Curved sheets get no size search: their
+        builds are slow at size and carry more edge than flat ones anyway.
+        """
+        target = self.config.H_C_ratio
+        if (target is None or composition.H_C_ratio <= target
+                or not any(e.startswith("H/C ratio") for e in errors)):
+            return None
+        n = self.config.target_num_carbons
+        cfg = self.config
+        reachable = target * (1.0 + cfg.H_C_tolerance)
+        floor = _compact_edge_fraction(
+            n, cfg.seed, cfg.defect_fraction, cfg.heptagon_fraction
+        )
+        if floor is None or floor <= reachable:
+            return None
+        reason = (
+            f"The target H/C {target:.3f} is below the lowest H/C a "
+            f"{n}-carbon aromatic sheet carries ({floor:.3f}): every edge carbon "
+            f"holds a hydrogen or a group, so this size cannot reach it."
+        )
+        if cfg.defect_fraction > 0 or cfg.heptagon_fraction > 0:
+            return reason + (
+                " Curved sheets carry more edge carbons than flat ones "
+                "(rqm/carbon-skeleton.md, rq-37961357), so a larger curved "
+                "sheet may still fall short."
+            )
+        size = _compact_size_reaching(n, reachable, cfg.seed)
+        if size is None:
+            return reason + (
+                f" No compact sheet up to {_FLOOR_SEARCH_MAX_CARBONS} carbons reaches it."
+            )
+        return reason + f" A compact sheet of target_num_carbons={size} reaches it."
+
+
+@functools.lru_cache(maxsize=256)
+def _compact_edge_fraction(
+    n: int, seed: Optional[int], defect_fraction: float, heptagon_fraction: float,
+) -> Optional[float]:
+    """Edge-carbon fraction of the compact sheet the builder makes at *n*."""
+    try:
+        sheet = PAHAssembler(seed=seed).generate(
+            n, defect_fraction=defect_fraction, heptagon_fraction=heptagon_fraction,
+        )
+    except SkeletonError:
+        return None
+    return _edge_carbon_fraction(sheet.mol)
+
+
+@functools.lru_cache(maxsize=256)
+def _compact_size_reaching(
+    n: int, reachable: float, seed: Optional[int],
+) -> Optional[int]:
+    """Smallest size, stepping up from *n*, whose flat compact sheet's edge
+    fraction is at most *reachable*; None if none up to
+    _FLOOR_SEARCH_MAX_CARBONS.
+
+    Cached: a sweep that misses the same point strictly and then non-strictly,
+    or at several seeds of one size, would otherwise repeat up to ten builds.
+    """
+    size = n
+    while size < _FLOOR_SEARCH_MAX_CARBONS:
+        size = int(math.ceil(size * _FLOOR_SEARCH_GROWTH / 10.0) * 10)
+        frac = _compact_edge_fraction(size, seed, 0.0, 0.0)
+        if frac is not None and frac <= reachable:
+            return size
+    return None
 
 
 def generate_biochar(

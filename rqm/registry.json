@@ -276,6 +276,14 @@
     "title": "A temperature is not judged against a property this config never derives",
     "type": "scenario"
   },
+  "rq-0d7ac25a": {
+    "decl": "## Methyl Decoration Keeps the Requested Size",
+    "file": "generation-config",
+    "level": 2,
+    "refs": [],
+    "title": "Methyl Decoration Keeps the Requested Size",
+    "type": "section"
+  },
   "rq-0e187d3e": {
     "decl": "## Feature API",
     "file": "gromacs-export",
@@ -449,6 +457,14 @@
     "title": "Layering",
     "type": "section"
   },
+  "rq-184038fe": {
+    "decl": "## An Elongated Build Lands Near Its H/C Target",
+    "file": "carbon-skeleton",
+    "level": 2,
+    "refs": [],
+    "title": "An Elongated Build Lands Near Its H/C Target",
+    "type": "section"
+  },
   "rq-190f0328": {
     "decl": "## A Charged Molecule Says So",
     "file": "gromacs-export",
@@ -586,6 +602,18 @@
     "title": "Copied sheets do not share coordinates",
     "type": "scenario"
   },
+  "rq-20d8d5ea": {
+    "decl": "Scenario: No two lattice carbons sit at bond distance without a bond",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "No two lattice carbons sit at bond distance without a bond",
+    "type": "scenario"
+  },
   "rq-212c17a8": {
     "decl": "## Include Files Come From the Manifest",
     "file": "md-setup",
@@ -604,6 +632,18 @@
       }
     ],
     "title": "A contact marginally inside the floor is not a clash",
+    "type": "scenario"
+  },
+  "rq-22536e48": {
+    "decl": "Scenario: Every carbon in a curved sheet has at most three bonds",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Every carbon in a curved sheet has at most three bonds",
     "type": "scenario"
   },
   "rq-227a0ddd": {
@@ -798,6 +838,19 @@
     ],
     "title": "Scaling a neutral molecule reports nothing",
     "type": "scenario"
+  },
+  "rq-2d15a0c0": {
+    "decl": "## A Curved Sheet Is Chemically Possible and Cheap to Perceive",
+    "file": "carbon-skeleton",
+    "level": 2,
+    "refs": [
+      {
+        "file": "src/biochar/pipeline/carbon_skeleton.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A Curved Sheet Is Chemically Possible and Cheap to Perceive",
+    "type": "section"
   },
   "rq-2da595b7": {
     "decl": "Scenario: Every status a build can return is one the documented set names",
@@ -1008,6 +1061,27 @@
     ],
     "title": "An amino nitrogen types as aniline N on a small flake",
     "type": "scenario"
+  },
+  "rq-37961357": {
+    "decl": "### Known limit: curved sheets carry more edge than flat ones",
+    "file": "carbon-skeleton",
+    "level": 3,
+    "refs": [
+      {
+        "file": "rqm/generation-config.md",
+        "kind": "code"
+      },
+      {
+        "file": "src/biochar/pipeline/biochar_generator.py",
+        "kind": "code"
+      },
+      {
+        "file": "src/biochar/pipeline/carbon_skeleton.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Known limit: curved sheets carry more edge than flat ones",
+    "type": "section"
   },
   "rq-37a3d53e": {
     "decl": "Scenario: A sheet with nothing to relieve is left alone",
@@ -1376,6 +1450,19 @@
     "title": "A target matching a library size is met exactly",
     "type": "scenario"
   },
+  "rq-4b588285": {
+    "decl": "## Growth Depends on the Seed, and a Failed Growth Is Retried",
+    "file": "carbon-skeleton",
+    "level": 2,
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Growth Depends on the Seed, and a Failed Growth Is Retried",
+    "type": "section"
+  },
   "rq-4dc5ce35": {
     "decl": "Scenario: An unparseable library entry is reported",
     "file": "carbon-skeleton",
@@ -1704,6 +1791,10 @@
     "file": "carbon-skeleton",
     "refs": [
       {
+        "file": "src/biochar/pipeline/carbon_skeleton.py",
+        "kind": "code"
+      },
+      {
         "file": "tests/test_carbon_skeleton_contract.py",
         "kind": "code"
       }
@@ -1729,6 +1820,18 @@
     "refs": [],
     "title": "Feature: Linked Multi-Unit Structures",
     "type": "file"
+  },
+  "rq-5af71ee2": {
+    "decl": "Scenario: A large pentagon-only request is refused with the reason",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A large pentagon-only request is refused with the reason",
+    "type": "scenario"
   },
   "rq-5b7a5ab8": {
     "decl": "Scenario: The annealing peak temperature follows the pyrolysis temperature",
@@ -1769,6 +1872,18 @@
     "refs": [],
     "title": "Feature API",
     "type": "section"
+  },
+  "rq-5e74710c": {
+    "decl": "Scenario: An elongated skeleton stays within a ring or two of the request",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An elongated skeleton stays within a ring or two of the request",
+    "type": "scenario"
   },
   "rq-5f4e2e68": {
     "decl": "- `VALID_FEEDSTOCKS: Tuple[str, ...]`",
@@ -1874,6 +1989,18 @@
       }
     ],
     "title": "A hydroxyl on a large sheet is bent, not linear",
+    "type": "scenario"
+  },
+  "rq-65ff7e4e": {
+    "decl": "Scenario: Methyl decoration never takes the size more than ten percent over the request",
+    "file": "generation-config",
+    "refs": [
+      {
+        "file": "tests/test_hc_control.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Methyl decoration never takes the size more than ten percent over the request",
     "type": "scenario"
   },
   "rq-6659180d": {
@@ -2122,6 +2249,18 @@
       }
     ],
     "title": "The topology headers name the units and links",
+    "type": "scenario"
+  },
+  "rq-7504e809": {
+    "decl": "Scenario: Neighboring seeds do not share their retries",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Neighboring seeds do not share their retries",
     "type": "scenario"
   },
   "rq-7515b128": {
@@ -2646,6 +2785,18 @@
     "title": "A molecule RDKit rejects is still reported",
     "type": "scenario"
   },
+  "rq-8f5204cd": {
+    "decl": "Scenario: Wood-sized curved sheets build on every seed",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Wood-sized curved sheets build on every seed",
+    "type": "scenario"
+  },
   "rq-8ff54b34": {
     "decl": "Scenario: Linker oxygen counts toward the O/C target",
     "file": "linked-units",
@@ -2668,6 +2819,18 @@
       }
     ],
     "title": "An explicitly requested ratio wins over the temperature-derived one",
+    "type": "scenario"
+  },
+  "rq-907cd890": {
+    "decl": "Scenario: An unreachable H/C names the floor and a size that reaches it",
+    "file": "generation-config",
+    "refs": [
+      {
+        "file": "tests/test_temperature_model.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An unreachable H/C names the floor and a size that reaches it",
     "type": "scenario"
   },
   "rq-915e673b": {
@@ -3080,6 +3243,18 @@
     ],
     "title": "biochar",
     "type": "api-item"
+  },
+  "rq-a3c395ed": {
+    "decl": "Scenario: A growth that fails on the caller's seed is retried",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A growth that fails on the caller's seed is retried",
+    "type": "scenario"
   },
   "rq-a467c647": {
     "decl": "Scenario: A deprotonated oxygen has no free valence",
@@ -4032,6 +4207,18 @@
     "title": "Every charge method the template names is accepted",
     "type": "scenario"
   },
+  "rq-cd3dc3c7": {
+    "decl": "Scenario: A miss the requested size could reach gets no floor hint",
+    "file": "generation-config",
+    "refs": [
+      {
+        "file": "tests/test_temperature_model.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A miss the requested size could reach gets no floor hint",
+    "type": "scenario"
+  },
   "rq-cf3d7a56": {
     "decl": "## Aromaticity Is an Outcome, Not a Request",
     "file": "carbon-skeleton",
@@ -4089,6 +4276,18 @@
       }
     ],
     "title": "A carbonyl request places a phenolic group",
+    "type": "scenario"
+  },
+  "rq-d56e008e": {
+    "decl": "Scenario: An elongated skeleton lands within ten percent of a reachable target",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An elongated skeleton lands within ten percent of a reachable target",
     "type": "scenario"
   },
   "rq-d5b18b3a": {
@@ -4402,6 +4601,18 @@
     "title": "grompp accepts a topology with each linker",
     "type": "scenario"
   },
+  "rq-e8417061": {
+    "decl": "Scenario: A sheet that closes with an odd count does not keep growing",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A sheet that closes with an odd count does not keep growing",
+    "type": "scenario"
+  },
   "rq-e918b504": {
     "decl": "Scenario: The unit count follows the temperature band",
     "file": "linked-units",
@@ -4498,6 +4709,14 @@
     "title": "Setting up a condensation run invokes no external program",
     "type": "scenario"
   },
+  "rq-edccbabe": {
+    "decl": "## A Target Below the Sheet's Floor Is Named as Unreachable",
+    "file": "generation-config",
+    "level": 2,
+    "refs": [],
+    "title": "A Target Below the Sheet's Floor Is Named as Unreachable",
+    "type": "section"
+  },
   "rq-ee235774": {
     "decl": "Scenario: A doped structure's nitrogen carries no more bonds than nitrogen can",
     "file": "valence-validation",
@@ -4516,6 +4735,18 @@
     "refs": [],
     "title": "CondensationError",
     "type": "api-item"
+  },
+  "rq-ef032605": {
+    "decl": "Scenario: A reachable temperature-mode target passes strict validation",
+    "file": "generation-config",
+    "refs": [
+      {
+        "file": "tests/test_temperature_model.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A reachable temperature-mode target passes strict validation",
+    "type": "scenario"
   },
   "rq-ef429ed9": {
     "decl": "## Cross-references",
@@ -4571,6 +4802,18 @@
     "refs": [],
     "title": "fraction_ionized",
     "type": "api-item"
+  },
+  "rq-f1e2eb6a": {
+    "decl": "Scenario: Aromaticity perception on a large curved sheet terminates quickly",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Aromaticity perception on a large curved sheet terminates quickly",
+    "type": "scenario"
   },
   "rq-f1f301e0": {
     "decl": "- `properties(temperature: float, feedstock: Optional[str] = None) -> Dict[str, float]`",
