@@ -5,6 +5,7 @@ Main API for generating biochar building blocks for GROMACS simulations.
 """
 
 import dataclasses
+import functools
 import logging
 import math
 import random
@@ -428,9 +429,6 @@ class BiocharGenerator:
                 defaults if ``None``.
         """
         self.config = config or GeneratorConfig()
-        # Lowest H/C the built aromatic sheet can carry, set when the request
-        # is below it (see _generate_carbon_skeleton); None otherwise.
-        self._h_c_floor: Optional[float] = None
         self.mol = None
         self.coords = None
         self.composition = None
@@ -732,22 +730,15 @@ class BiocharGenerator:
             target_h_c=r,
         )
 
-        # A target below the sheet's edge-carbon fraction may be out of reach
-        # at this size: each edge carbon carries a hydrogen or a group, and
-        # only groups without a hydrogen (an ether bridge) pull H/C lower.
-        # Recorded rather than refused, since decoration can still get there;
-        # _validate names it if the H/C check then fails (issue #63).
-        if r is not None:
-            edge = _edge_carbon_fraction(skeleton.mol)
-            self._h_c_floor = edge if r < edge else None
+        edge = _edge_carbon_fraction(skeleton.mol)
 
         # If the requested H/C still exceeds what this (already elongated)
         # aromatic flake can carry, rebuild a smaller aromatic core and decorate
         # it with pendant methyls so the total carbon count stays ~N while the
         # H/C reaches the target.  The methyl count is computed from the core
         # that is *actually built* so elongation and methyls never double-count.
-        if self._aliphatic_enabled(r) and r > _edge_carbon_fraction(skeleton.mol) + 0.02:
-            ceiling = _edge_carbon_fraction(skeleton.mol)
+        if self._aliphatic_enabled(r) and r > edge + 0.02:
+            ceiling = edge
             # Estimate the aromatic/aliphatic split (keeps total C ~ N).  Each
             # methyl adds +1 C and a net +2 H, so H/C = ceiling + n(2-ceiling)/N.
             def split(c):
@@ -1115,44 +1106,85 @@ class BiocharGenerator:
     def _h_c_floor_reason(
         self, composition: CompositionResult, errors: List[str]
     ) -> Optional[str]:
-        """Why an H/C miss happened, when the target was below the sheet's floor.
+        """Why an H/C miss happened, when the target is below what the size allows.
 
-        The H/C check alone says only that the ratio missed. When the request
-        sat below what any sheet of this size carries, the useful answer is the
-        floor and a size that would reach it. The size is measured, not
-        extrapolated: the N^-1/2 edge scaling of an ideal flake suggested 300
-        carbons for 800 °C softwood where 300-carbon sheets still sit at
-        0.19-0.23. Compact sheets are built at growing sizes (this runs only
-        on the failure path) until one reaches the tolerance band.
+        The H/C check alone says only that the ratio missed. Every edge carbon
+        of an aromatic sheet carries a hydrogen or a group, so a sheet's
+        edge-carbon fraction is the lowest H/C it reaches, and the most compact
+        sheet of the requested size sets the floor. Measured here, on the
+        failure path only, from a compact build -- not from the structure that
+        failed, which may have been elongated toward a higher target and
+        overshot. When the compact sheet reaches the target, the miss had
+        another cause and no hint is given (issue #63).
+
+        The size that reaches it is measured too: the N^-1/2 edge scaling of an
+        ideal flake suggested 300 carbons for 800 °C softwood where 300-carbon
+        sheets still sit at 0.19-0.23. Curved sheets get no size search: their
+        builds are slow at size and carry more edge than flat ones anyway.
         """
-        floor = self._h_c_floor
         target = self.config.H_C_ratio
-        if (floor is None or target is None or composition.H_C_ratio <= target
+        if (target is None or composition.H_C_ratio <= target
                 or not any(e.startswith("H/C ratio") for e in errors)):
             return None
         n = self.config.target_num_carbons
+        cfg = self.config
+        reachable = target * (1.0 + cfg.H_C_tolerance)
+        floor = _compact_edge_fraction(
+            n, cfg.seed, cfg.defect_fraction, cfg.heptagon_fraction
+        )
+        if floor is None or floor <= reachable:
+            return None
         reason = (
             f"The target H/C {target:.3f} is below the lowest H/C a "
             f"{n}-carbon aromatic sheet carries ({floor:.3f}): every edge carbon "
             f"holds a hydrogen or a group, so this size cannot reach it."
         )
-        reachable = target * (1.0 + self.config.H_C_tolerance)
-        size = n
-        while size < _FLOOR_SEARCH_MAX_CARBONS:
-            size = int(math.ceil(size * _FLOOR_SEARCH_GROWTH / 10.0) * 10)
-            try:
-                sheet = PAHAssembler(seed=self.config.seed).generate(
-                    size,
-                    defect_fraction=self.config.defect_fraction,
-                    heptagon_fraction=self.config.heptagon_fraction,
-                )
-            except SkeletonError:
-                continue
-            if _edge_carbon_fraction(sheet.mol) <= reachable:
-                return reason + f" A compact sheet of target_num_carbons={size} reaches it."
-        return reason + (
-            f" No compact sheet up to {_FLOOR_SEARCH_MAX_CARBONS} carbons reaches it."
+        if cfg.defect_fraction > 0 or cfg.heptagon_fraction > 0:
+            return reason + (
+                " Curved sheets carry more edge carbons than flat ones "
+                "(rqm/carbon-skeleton.md, rq-37961357), so a larger curved "
+                "sheet may still fall short."
+            )
+        size = _compact_size_reaching(n, reachable, cfg.seed)
+        if size is None:
+            return reason + (
+                f" No compact sheet up to {_FLOOR_SEARCH_MAX_CARBONS} carbons reaches it."
+            )
+        return reason + f" A compact sheet of target_num_carbons={size} reaches it."
+
+
+@functools.lru_cache(maxsize=256)
+def _compact_edge_fraction(
+    n: int, seed: Optional[int], defect_fraction: float, heptagon_fraction: float,
+) -> Optional[float]:
+    """Edge-carbon fraction of the compact sheet the builder makes at *n*."""
+    try:
+        sheet = PAHAssembler(seed=seed).generate(
+            n, defect_fraction=defect_fraction, heptagon_fraction=heptagon_fraction,
         )
+    except SkeletonError:
+        return None
+    return _edge_carbon_fraction(sheet.mol)
+
+
+@functools.lru_cache(maxsize=256)
+def _compact_size_reaching(
+    n: int, reachable: float, seed: Optional[int],
+) -> Optional[int]:
+    """Smallest size, stepping up from *n*, whose flat compact sheet's edge
+    fraction is at most *reachable*; None if none up to
+    _FLOOR_SEARCH_MAX_CARBONS.
+
+    Cached: a sweep that misses the same point strictly and then non-strictly,
+    or at several seeds of one size, would otherwise repeat up to ten builds.
+    """
+    size = n
+    while size < _FLOOR_SEARCH_MAX_CARBONS:
+        size = int(math.ceil(size * _FLOOR_SEARCH_GROWTH / 10.0) * 10)
+        frac = _compact_edge_fraction(size, seed, 0.0, 0.0)
+        if frac is not None and frac <= reachable:
+            return size
+    return None
 
 
 def generate_biochar(

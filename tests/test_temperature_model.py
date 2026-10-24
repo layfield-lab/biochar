@@ -246,6 +246,20 @@ class TestStrictTemperatureMode:
         assert "below the lowest H/C" in message, message
         assert "target_num_carbons=" in message, message
 
+    # rq-cd3dc3c7
+    @pytest.mark.slow
+    def test_a_miss_the_size_can_reach_gets_no_floor_hint(self):
+        from biochar.pipeline.biochar_generator import ValidationError
+
+        # 300 C at H/C 0.35 is above the compact floor (~0.23); this seed's
+        # elongated build overshot to 0.43, which is not a floor. The hint
+        # once called it one and suggested 380 carbons.
+        c = GeneratorConfig(target_num_carbons=300, H_C_ratio=0.35, seed=2)
+        try:
+            BiocharGenerator(c).generate()
+        except ValidationError as exc:
+            assert "below the lowest H/C" not in str(exc), str(exc)
+
 
 class TestBuildHelpers:
     def test_model_artifact_loads(self):

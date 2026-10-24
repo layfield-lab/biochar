@@ -757,6 +757,19 @@ def _hexagon_new_atom_count(
     return sum(1 for p in new_pos if _find_node_at_position(positions, p) is None)
 
 
+def _first_odd_adding_edge(G, positions, ranked_edges):
+    """First edge in *ranked_edges* where a hexagon adds an odd number of atoms.
+
+    On the lattice only a hexagon that closes onto an existing corner (a cove)
+    adds an odd count, so this is the one fusion that changes parity.
+    """
+    return next(
+        (e for e in ranked_edges
+         if _hexagon_new_atom_count(G, positions, *e) % 2 == 1),
+        None,
+    )
+
+
 def _choose_ring_size(
     rng: random.Random,
     pentagon_fraction: float,
@@ -918,13 +931,14 @@ def _grow_graph(
         # Elongated sheets lose their coves as they grow, so a sheet that is
         # odd at the end usually has no odd-adding fusion left and cannot be
         # kekulized. While coves still exist near the target, an odd sheet
-        # takes one. Compact growth (compactness 1.0) is left as it was.
+        # takes one. "Near" is the last two hexagons' worth of atoms: earlier,
+        # later growth could undo it. Compact growth (compactness 1.0) is left
+        # as it was, and curved growth returned above, so this is pure-hexagon.
         if (positions is not None and compactness < 1.0
                 and G.number_of_nodes() % 2 == 1 and nodes_remaining <= 8):
-            odd = [e for e in fusable
-                   if _hexagon_new_atom_count(G, positions, *e) % 2 == 1]
-            if odd:
-                u, v = odd[0]
+            odd = _first_odd_adding_edge(G, positions, fusable)
+            if odd is not None:
+                u, v = odd
 
         # Decide ring size for this step. Pentagon (+3) / heptagon (+5) are drawn
         # with their requested fractions; hexagon (+4) is the remainder. When no
@@ -961,17 +975,15 @@ def _grow_graph(
         # the caller's retry if none does.
         # An elongated sheet has few coves, so none may be on offer; then one
         # hexagon on open edge is fused as padding, which opens new ones, and
-        # the search runs once more. Elongated builds were left odd -- and
-        # unkekulizable -- about 40% of the time without it.
+        # the search runs once more.
         for pad in range(_PARITY_PADDING_TRIES + 1):
             if G.number_of_nodes() % 2 == 0:
                 break
             fusable = _get_fusable_edges(G)
             fusable.sort(key=lambda e: (-_edge_neighbor_degree(G, e[0], e[1]), rng.random()))
-            odd = [e for e in fusable
-                   if _hexagon_new_atom_count(G, positions, *e) % 2 == 1]
-            if odd:
-                _fuse_hexagon(G, *odd[0], next_node, positions=positions)
+            odd = _first_odd_adding_edge(G, positions, fusable)
+            if odd is not None:
+                _fuse_hexagon(G, *odd, next_node, positions=positions)
                 _add_missing_lattice_bonds(G, positions)
                 break
             if pad == _PARITY_PADDING_TRIES or not fusable:
@@ -1529,6 +1541,9 @@ class PAHAssembler:
             are made with different sub-seeds if growth stalls short of the
             target or kekulization fails.
         """
+        # About 40% of elongated builds cannot be kekulized (unbalanced
+        # sublattices), so five sub-seeds put an all-fail step near 1%. It is
+        # also the stride that keeps each (step, attempt) on its own sub-seed.
         _MAX_ELONGATE_RETRIES = 5
 
         if defect_fraction <= 0.0 and heptagon_fraction <= 0.0:
@@ -1578,6 +1593,8 @@ class PAHAssembler:
                     if cand is not None:
                         break
                 if cand is None:
+                    # Every sub-seed failed here, so there is no edge fraction
+                    # to say which way to move; keep the closest so far.
                     break
                 frac = _edge_carbon_fraction(cand)
                 err = abs(frac - target_h_c)

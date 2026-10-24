@@ -967,6 +967,14 @@
     "level": 3,
     "refs": [
       {
+        "file": "rqm/generation-config.md",
+        "kind": "code"
+      },
+      {
+        "file": "src/biochar/pipeline/biochar_generator.py",
+        "kind": "code"
+      },
+      {
         "file": "src/biochar/pipeline/carbon_skeleton.py",
         "kind": "code"
       }
@@ -3822,6 +3830,18 @@
       }
     ],
     "title": "Every charge method the template names is accepted",
+    "type": "scenario"
+  },
+  "rq-cd3dc3c7": {
+    "decl": "Scenario: A miss the requested size could reach gets no floor hint",
+    "file": "generation-config",
+    "refs": [
+      {
+        "file": "tests/test_temperature_model.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A miss the requested size could reach gets no floor hint",
     "type": "scenario"
   },
   "rq-cf3d7a56": {

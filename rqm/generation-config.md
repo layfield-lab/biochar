@@ -130,10 +130,13 @@ that: 800 °C softwood wants H/C 0.168, and no sheet of 250 carbons or fewer get
 failed every such request with only "H/C ratio exceeds tolerance" (issue #63).
 
 The request is not refused before generation, because decoration can sometimes close the gap.
-When the H/C check fails and the target was below the floor, the error names the floor and a size
-that reaches it. That size comes from building compact sheets at growing sizes, not from a scaling
-law, because the N^-1/2 scaling of an ideal flake suggested sizes that still fell short. A
-non-strict run logs the same reason as a warning.
+When the H/C check fails, the floor is measured from a compact build at the requested size -- not
+from the structure that failed, which may have been elongated toward a higher target and overshot
+-- and when the target is below it, the error names the floor and a size that reaches it. That
+size comes from building flat compact sheets at growing sizes, not from a scaling law, because the
+N^-1/2 scaling of an ideal flake suggested sizes that still fell short. A curved request gets the
+floor without a size: curved builds are slow at size, and carry more edge than flat ones
+(`carbon-skeleton.md`, rq-37961357). A non-strict run logs the same reason as a warning.
 
 ```gherkin
 Feature: Explain an H/C the requested size cannot reach
@@ -144,6 +147,12 @@ Feature: Explain an H/C the requested size cannot reach
     When a structure is generated in strict mode and fails the H/C check
     Then the error names the floor
     And it names a target_num_carbons whose compact sheet reaches the target
+
+  @rq-cd3dc3c7
+  Scenario: A miss the requested size could reach gets no floor hint
+    Given a target H/C above the compact floor of the requested size
+    When a structure is generated in strict mode and fails the H/C check
+    Then the error does not call the target unreachable
 
   @rq-ef032605
   Scenario: A reachable temperature-mode target passes strict validation
