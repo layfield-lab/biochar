@@ -161,6 +161,22 @@ class TestGromppAcceptsTheTopology:
         )
 
 
+# rq-e72878a2
+@requires_gmx
+@pytest.mark.parametrize("linker", ["biaryl", "diaryl_ether", "aryl_alkyl_ether", "propyl"])
+def test_grompp_accepts_each_linked_unit_linker(tmp_path, linker):
+    """Each linker of a linked multi-unit structure (rqm/linked-units.md) emits
+    bonds, angles and torsions stock oplsaa.ff resolves: CA-OS-CA, CT-OS-CA,
+    CA-CT-CT and the biaryl CA-CA across units."""
+    _export(tmp_path, linker, target_num_carbons=40, linked_units=True, num_units=3,
+            linker_mix={linker: 1.0}, H_C_ratio=0.6, O_C_ratio=0.05)
+    result = _grompp(tmp_path, linker)
+    assert result.returncode == 0, (
+        f"grompp refused a {linker}-linked topology:\n{result.stderr[-2000:]}"
+    )
+    assert not _warnings(result.stderr), _warnings(result.stderr)
+
+
 def test_the_grompp_skip_is_visible():
     """A depth that quietly did not run is worse than one never claimed.
 
