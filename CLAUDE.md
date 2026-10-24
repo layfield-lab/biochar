@@ -147,6 +147,10 @@ Beyond that pipeline:
 - **`charges/qm_charges.py`** — LigParGen-style QM partial charges (1.14*CM1A) via an external
   MOPAC binary. Requires a MOPAC install; raises `QMChargeError` when unavailable.
 - **`charges/ml_charges.py`** — ML-based partial charge refinement.
+- **`pipeline/multi_unit.py`** — opt-in linked multi-unit ("island") structures
+  (`GeneratorConfig.linked_units`): several aromatic units joined by biaryl, ether and propyl
+  linkers, unit count by temperature, and a rigid-fragment embedder. Specified in
+  `rqm/linked-units.md`.
 - **`pipeline/valence.py`** — valence validation system (see `docs/guides/VALENCE_SYSTEM.md`).
 - **`cli/cli.py`**, **`cli/sweep_cli.py`**, **`cli/md_setup_cli.py`**, **`cli/condensation_cli.py`**
   — argument parsing plus the three decisions only this layer can make: precedence between a
