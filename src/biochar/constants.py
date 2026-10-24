@@ -668,7 +668,10 @@ LATTICE_TETHER_RADIUS = 0.3  # Angstroms
 LATTICE_TETHER_FORCE_CONSTANT = 10.0
 LATTICE_BOND_RANGE = (1.40, 1.42)  # Angstroms
 LATTICE_BOND_FORCE_CONSTANT = 20000.0
-LATTICE_RELAX_MAX_ITERATIONS = 400
+# The minimiser stops early once converged, so this is a ceiling, not a cost.
+# At 400 it was routinely cut off mid-descent: 150 C, H/C 0.35, O/C 0.3, seed 4
+# kept a fjord contact at 400 and cleared it at 1000 from every start tried.
+LATTICE_RELAX_MAX_ITERATIONS = 2000
 
 # Largest RMS deviation (Å) of the ring atoms from their best-fit plane that a
 # relaxed sheet may show and still count as flat.  Local cove buckling of up to

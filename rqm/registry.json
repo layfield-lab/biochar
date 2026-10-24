@@ -973,6 +973,18 @@
     "title": "The Direction of Ionization Follows the Kind of Group",
     "type": "section"
   },
+  "rq-340c44e4": {
+    "decl": "Scenario: Hydroxyls at a fjord are relieved",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Hydroxyls at a fjord are relieved",
+    "type": "scenario"
+  },
   "rq-35a5407d": {
     "decl": "Scenario: Every emitted angle resolves in the forcefield",
     "file": "opls-typing",
@@ -1131,6 +1143,18 @@
       }
     ],
     "title": "The map holds no entries for types that do not exist",
+    "type": "scenario"
+  },
+  "rq-3e250d24": {
+    "decl": "Scenario: A crowded hydroxyl keeps its angle when it is moved",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A crowded hydroxyl keeps its angle when it is moved",
     "type": "scenario"
   },
   "rq-3f012547": {
@@ -2106,6 +2130,10 @@
     "level": 3,
     "refs": [
       {
+        "file": "src/biochar/pipeline/geometry_3d.py",
+        "kind": "code"
+      },
+      {
         "file": "tests/test_lattice_relief.py",
         "kind": "code"
       }
@@ -2242,6 +2270,18 @@
     "refs": [],
     "title": "The Annealing Schedule Is the Published One",
     "type": "section"
+  },
+  "rq-7cab77bd": {
+    "decl": "Scenario: Two groups crowding each other tilt opposite ways",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Two groups crowding each other tilt opposite ways",
+    "type": "scenario"
   },
   "rq-7cee9ec6": {
     "decl": "## Unit Count and Linkers Follow Temperature",

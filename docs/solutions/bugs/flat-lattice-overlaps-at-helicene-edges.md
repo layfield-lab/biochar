@@ -165,12 +165,48 @@ way:
   `validate_geometry` also stops at the first NaN with a single error, so the comparison rejects
   non-finite coordinates first.
 
-**Leave `_optimize_h_positions` alone unless you re-run the grid.** Its out-of-plane candidates
-(`geometry_3d.py:615`) translate a crowded O–H hydrogen and only rescale the bond, so X–O–H ends
-up at about 95–135°. Projecting the candidates back onto the bond-angle cone fixed the angle. It
-also took an undecorated sheet (150 C, H/C 0.35, O/C 0.3, seed 4) from 0 to 115 clashes, because
-the relief's tethered UFF is sensitive to where the hydrogens start. That fix was reverted and
-remains open.
+## Follow-up: crowded hydroxyls bent their angle, and the relief hinged on it
+
+`_optimize_h_positions` moved a crowded O–H hydrogen by adding a z offset (up to 0.9 Å) to a
+dihedral candidate and rescaling only the bond, so the C–O–H angle drifted to 95–135°. Where the
+offset cancelled the hydrogen's own out-of-plane component it landed on the C–O axis: 178°, a
+singular torsion for any later force field. On the 90-point grid (100/150 C × H/C 0.35/0.5/0.6 ×
+O/C 0/0.1/0.3 × seeds 1–5), 104 of 1,522 hydroxyls were outside 100–120°, at 9 points.
+
+Keeping only the dihedral sweep (every candidate a rotation about C–O, so the angle holds) fixed
+all 104. It was tried once before and reverted, because 150 C, H/C 0.35, O/C 0.3, seed 4 went from
+0 to 115 clashes. That was not caused by the hydrogens. It was exposed by them:
+
+- **The tilt can hand two crowding groups the same direction.** Directions go out greedily,
+  deepest contact first. At a fjord (two unbonded ring carbons 1.42 Å apart) each arm's OH oxygen
+  sits 0.06 Å from the *other* arm's carbon. Those two contacts are the deepest, so each group is
+  given +1 on its own, and when their O···O contact comes up both already tilt the same way: O···O
+  0.72 Å, H···O 0.48 Å. UFF starts at 3.7 × 10⁸ kcal/mol, throws the oxygens 3–7 Å off their
+  carbons, and the relax is rightly rejected. That leaves the tilted sheet with 100+ clashes.
+  Which contacts come first depends on every hydroxyl hydrogen's position, so any change to them
+  reshuffles which sheets fail. The old placement had the same problem at a different seed
+  (O/C 0.1, seed 4: 74 clashes). Fix: a pair sharing a direction also tries flipping its second
+  group (`_tilt_crowded_substituents`). The fixture `_fjord_hydroxyls` in
+  `tests/test_lattice_relief.py` reproduces it on a [5]helicene.
+- **The tethered UFF was cut off mid-descent.** With the tilt fixed, seed 4 still kept one fjord
+  C···C contact 0.06 Å inside the floor at 400 iterations. At 1,000 it cleared from every z-noise
+  seed tried. `LATTICE_RELAX_MAX_ITERATIONS` is now 2,000. The minimiser stops when it converges,
+  so grid wall time went from 42 s to 48 s (one run each).
+
+All three changes are needed. Ablations on the same grid, against 77 clash-free points and 554
+total clashes before:
+
+| Change | Clash-free | Total clashes | Bad angles | Points worse |
+|---|---|---|---|---|
+| Iterations only | 80 | 428 | 103 | 0 |
+| Cone + iterations | 81 | 430 | 0 | 1 (O/C 0.3 seed 4: 0 → 1) |
+| Cone + flip (400 its) | 82 | 299 | 0 | 1 (same point: 0 → 1) |
+| **Cone + flip + iterations** | **85** | **206** | **0** | **0** |
+
+The lesson generalises the one above about the gate: when a local change to the input of a
+multi-stage pipeline moves the outcome a lot, look for a greedy, order-dependent step downstream
+before blaming the change. A greedy choice that is right for most inputs makes the result depend
+on input ordering, so small changes look like they cause large regressions.
 
 ## What this does not fix
 
@@ -182,8 +218,7 @@ remains open.
   most ~0.1 Å inside the floor. That understated them: at 150 C, H/C 0.35, seeds 2, 3 and 5 failed
   strict on 11–17 clashes up to **0.40 Å** inside it. Fixed in #66: decorated sheets now stay on
   the lattice, with a free embedding kept only when it leaves fewer errors (rq-d6926052).
-- **Fjords on an otherwise clean sheet.** At 150 C, H/C 0.35, seed 4 (no decoration) keeps two
-  contacts after relief, 0.11 and 0.14 Å inside the floor. Both are 1–4 pairs at fjords: the
-  tethered relaxation moved fjord atoms 1.8–4 Å and compressed their neighbours. Revisiting the
-  tether radius or tilt limits is a separate change.
+- **Heavily decorated, oxygen-free sheets.** Five grid points, all at H/C 0.6 and O/C 0, still keep
+  25–63 clashes after both embeddings: 100 C seeds 2 and 4, 150 C seeds 2–4. The fjord contacts at 150 C, H/C 0.35, seed 4 that this
+  bullet used to describe cleared once the relaxation was allowed to converge (see above).
 - **Composition.** 650–800 °C targets below a skeleton's H/C floor are #63.
