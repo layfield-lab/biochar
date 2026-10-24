@@ -122,6 +122,26 @@ class TestElongatedGrowth:
             )
 
 
+class TestElongationLandsNearItsTarget:
+    """Issue #63: elongation tried one compactness and stopped at the first
+    candidate at or above the target, overshooting by 6-24%."""
+
+    # rq-d56e008e
+    @pytest.mark.parametrize("target,target_h_c", [
+        (150, 0.414), (200, 0.414), (250, 0.414), (272, 0.322),
+    ])
+    def test_an_elongated_skeleton_lands_within_ten_percent(self, target, target_h_c):
+        from biochar.pipeline.carbon_skeleton import _edge_carbon_fraction
+
+        for seed in (1, 2, 3):
+            skeleton = PAHAssembler(seed=seed).generate(target, target_h_c=target_h_c)
+            frac = _edge_carbon_fraction(skeleton.mol)
+            assert abs(frac - target_h_c) <= 0.10 * target_h_c, (
+                f"seed {seed}, {target} C: edge fraction {frac:.3f} against "
+                f"target {target_h_c}"
+            )
+
+
 class TestSeedDependentFailuresAreRetried:
     # rq-a3c395ed
     def test_a_growth_that_fails_on_the_callers_seed_is_retried(self):

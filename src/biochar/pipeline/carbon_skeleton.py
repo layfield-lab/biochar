@@ -51,6 +51,13 @@ _DEFECT_BOND_MIN = 1.25
 _DEFECT_BOND_MAX = 1.60
 _DEFECT_CLEARANCE = 2.0
 
+# Elongated growth (target_h_c above the compact ceiling): compactness values
+# tried while bisecting toward the target, and the relative H/C miss at which
+# the search stops early. 3% leaves room inside strict validation's 10% for
+# what decoration adds or removes afterwards.
+_ELONGATE_SEARCH_STEPS = 10
+_ELONGATE_HC_TOLERANCE = 0.03
+
 # Attempts per build. A failed growth is seed-dependent -- the RNG breaks ties
 # between equally ranked fusion edges and draws ring sizes -- so a fresh
 # sub-seed is a real second chance, not a repeat.
@@ -75,8 +82,8 @@ _CLUSTER_SITES_TRIED = 6
 # Atoms a 5-7-5 cluster adds on open edge (heptagon 5, two pentagons 3 each).
 _CLUSTER_ATOMS = 11
 
-# Hexagons a curved sheet may be padded with while looking for a fusion that
-# fixes its parity. Each adds four carbons, so this bounds the overshoot.
+# Hexagons a sheet may be padded with while looking for a fusion that fixes
+# its parity. Each adds four carbons, so this bounds the overshoot.
 _PARITY_PADDING_TRIES = 1
 
 logger = logging.getLogger(__name__)
@@ -750,6 +757,19 @@ def _hexagon_new_atom_count(
     return sum(1 for p in new_pos if _find_node_at_position(positions, p) is None)
 
 
+def _first_odd_adding_edge(G, positions, ranked_edges):
+    """First edge in *ranked_edges* where a hexagon adds an odd number of atoms.
+
+    On the lattice only a hexagon that closes onto an existing corner (a cove)
+    adds an odd count, so this is the one fusion that changes parity.
+    """
+    return next(
+        (e for e in ranked_edges
+         if _hexagon_new_atom_count(G, positions, *e) % 2 == 1),
+        None,
+    )
+
+
 def _choose_ring_size(
     rng: random.Random,
     pentagon_fraction: float,
@@ -908,6 +928,18 @@ def _grow_graph(
 
         nodes_remaining = target_nodes - G.number_of_nodes()
 
+        # Elongated sheets lose their coves as they grow, so a sheet that is
+        # odd at the end usually has no odd-adding fusion left and cannot be
+        # kekulized. While coves still exist near the target, an odd sheet
+        # takes one. "Near" is the last two hexagons' worth of atoms: earlier,
+        # later growth could undo it. Compact growth (compactness 1.0) is left
+        # as it was, and curved growth returned above, so this is pure-hexagon.
+        if (positions is not None and compactness < 1.0
+                and G.number_of_nodes() % 2 == 1 and nodes_remaining <= 8):
+            odd = _first_odd_adding_edge(G, positions, fusable)
+            if odd is not None:
+                u, v = odd
+
         # Decide ring size for this step. Pentagon (+3) / heptagon (+5) are drawn
         # with their requested fractions; hexagon (+4) is the remainder. When no
         # defects are requested this is always a hexagon.
@@ -941,14 +973,23 @@ def _grow_graph(
         # request grew to 463 C and was then unkekulizable anyway. Fuse at the
         # best-ranked edge that adds an odd count, or leave the sheet odd for
         # the caller's retry if none does.
-        if G.number_of_nodes() % 2 != 0:
+        # An elongated sheet has few coves, so none may be on offer; then one
+        # hexagon on open edge is fused as padding, which opens new ones, and
+        # the search runs once more.
+        for pad in range(_PARITY_PADDING_TRIES + 1):
+            if G.number_of_nodes() % 2 == 0:
+                break
             fusable = _get_fusable_edges(G)
             fusable.sort(key=lambda e: (-_edge_neighbor_degree(G, e[0], e[1]), rng.random()))
-            for u, v in fusable:
-                if _hexagon_new_atom_count(G, positions, u, v) % 2 == 1:
-                    _fuse_hexagon(G, u, v, next_node, positions=positions)
-                    _add_missing_lattice_bonds(G, positions)
-                    break
+            odd = _first_odd_adding_edge(G, positions, fusable)
+            if odd is not None:
+                _fuse_hexagon(G, *odd, next_node, positions=positions)
+                _add_missing_lattice_bonds(G, positions)
+                break
+            if pad == _PARITY_PADDING_TRIES or not fusable:
+                break
+            next_node = _fuse_hexagon(G, *fusable[0], next_node, positions=positions)
+            _add_missing_lattice_bonds(G, positions)
         return G
 
     # Parity guard without positions: ensure even node count for Kekulé
@@ -1500,7 +1541,10 @@ class PAHAssembler:
             are made with different sub-seeds if growth stalls short of the
             target or kekulization fails.
         """
-        _MAX_ELONGATE_RETRIES = 4
+        # About 40% of elongated builds cannot be kekulized (unbalanced
+        # sublattices), so five sub-seeds put an all-fail step near 1%. It is
+        # also the stride that keeps each (step, attempt) on its own sub-seed.
+        _MAX_ELONGATE_RETRIES = 5
 
         if defect_fraction <= 0.0 and heptagon_fraction <= 0.0:
             # --- Pure hexagon route ---
@@ -1524,23 +1568,45 @@ class PAHAssembler:
             # an over-elongated flake that shoots past the target is rejected in
             # favour of the compact flake (or a milder elongation) rather than
             # returning an H/C that is now too high.
+            #
+            # Edge fraction falls as compactness rises (noisily), so the search
+            # bisects compactness toward the target: an overshoot moves toward
+            # compact, a shortfall toward elongated. It used to try one value
+            # and stop at the first candidate at or above the target, which
+            # overshot by 6-24% (250 C asked 0.414, got 0.512) and failed
+            # strict H/C on every seed.
             comp = _compactness_for_hc(target_h_c, compact_ceiling)
+            lo, hi = 0.0, 1.0  # compactness bracket: lo elongated, hi compact
             base_seed = self.seed if self.seed is not None else 0
             best_mol = compact_mol
             best_err = abs(compact_ceiling - target_h_c)
-            for attempt in range(_MAX_ELONGATE_RETRIES):
-                cand = self._build_pure_hex_elongated(
-                    adj_target, comp, base_seed + attempt
-                )
+            for step in range(_ELONGATE_SEARCH_STEPS):
+                cand = None
+                # An elongated sheet can close without a Kekule structure;
+                # that is a property of the growth, so another sub-seed at the
+                # same compactness is a fair retry.
+                for attempt in range(_MAX_ELONGATE_RETRIES):
+                    cand = self._build_pure_hex_elongated(
+                        adj_target, comp,
+                        _sub_seed(base_seed, step * _MAX_ELONGATE_RETRIES + attempt),
+                    )
+                    if cand is not None:
+                        break
                 if cand is None:
-                    continue
+                    # Every sub-seed failed here, so there is no edge fraction
+                    # to say which way to move; keep the closest so far.
+                    break
                 frac = _edge_carbon_fraction(cand)
                 err = abs(frac - target_h_c)
                 if err < best_err:
                     best_mol, best_err = cand, err
-                if frac >= target_h_c:
-                    # Reached/overshot the target; further tries only move away.
+                if best_err <= _ELONGATE_HC_TOLERANCE * target_h_c:
                     break
+                if frac > target_h_c:
+                    lo = comp
+                else:
+                    hi = comp
+                comp = (lo + hi) / 2.0
             return best_mol
 
         else:

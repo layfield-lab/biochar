@@ -457,6 +457,14 @@
     "title": "Layering",
     "type": "section"
   },
+  "rq-184038fe": {
+    "decl": "## An Elongated Build Lands Near Its H/C Target",
+    "file": "carbon-skeleton",
+    "level": 2,
+    "refs": [],
+    "title": "An Elongated Build Lands Near Its H/C Target",
+    "type": "section"
+  },
   "rq-190f0328": {
     "decl": "## A Charged Molecule Says So",
     "file": "gromacs-export",
@@ -1047,6 +1055,14 @@
     "file": "carbon-skeleton",
     "level": 3,
     "refs": [
+      {
+        "file": "rqm/generation-config.md",
+        "kind": "code"
+      },
+      {
+        "file": "src/biochar/pipeline/biochar_generator.py",
+        "kind": "code"
+      },
       {
         "file": "src/biochar/pipeline/carbon_skeleton.py",
         "kind": "code"
@@ -2765,6 +2781,18 @@
     "title": "An explicitly requested ratio wins over the temperature-derived one",
     "type": "scenario"
   },
+  "rq-907cd890": {
+    "decl": "Scenario: An unreachable H/C names the floor and a size that reaches it",
+    "file": "generation-config",
+    "refs": [
+      {
+        "file": "tests/test_temperature_model.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An unreachable H/C names the floor and a size that reaches it",
+    "type": "scenario"
+  },
   "rq-915e673b": {
     "decl": "## The Supplementary Angle Table Is Narrowly Scoped",
     "file": "opls-typing",
@@ -4139,6 +4167,18 @@
     "title": "Every charge method the template names is accepted",
     "type": "scenario"
   },
+  "rq-cd3dc3c7": {
+    "decl": "Scenario: A miss the requested size could reach gets no floor hint",
+    "file": "generation-config",
+    "refs": [
+      {
+        "file": "tests/test_temperature_model.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A miss the requested size could reach gets no floor hint",
+    "type": "scenario"
+  },
   "rq-cf3d7a56": {
     "decl": "## Aromaticity Is an Outcome, Not a Request",
     "file": "carbon-skeleton",
@@ -4196,6 +4236,18 @@
       }
     ],
     "title": "A carbonyl request places a phenolic group",
+    "type": "scenario"
+  },
+  "rq-d56e008e": {
+    "decl": "Scenario: An elongated skeleton lands within ten percent of a reachable target",
+    "file": "carbon-skeleton",
+    "refs": [
+      {
+        "file": "tests/test_carbon_skeleton_contract.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An elongated skeleton lands within ten percent of a reachable target",
     "type": "scenario"
   },
   "rq-d5b18b3a": {
@@ -4617,6 +4669,14 @@
     "title": "Setting up a condensation run invokes no external program",
     "type": "scenario"
   },
+  "rq-edccbabe": {
+    "decl": "## A Target Below the Sheet's Floor Is Named as Unreachable",
+    "file": "generation-config",
+    "level": 2,
+    "refs": [],
+    "title": "A Target Below the Sheet's Floor Is Named as Unreachable",
+    "type": "section"
+  },
   "rq-ee235774": {
     "decl": "Scenario: A doped structure's nitrogen carries no more bonds than nitrogen can",
     "file": "valence-validation",
@@ -4635,6 +4695,18 @@
     "refs": [],
     "title": "CondensationError",
     "type": "api-item"
+  },
+  "rq-ef032605": {
+    "decl": "Scenario: A reachable temperature-mode target passes strict validation",
+    "file": "generation-config",
+    "refs": [
+      {
+        "file": "tests/test_temperature_model.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A reachable temperature-mode target passes strict validation",
+    "type": "scenario"
   },
   "rq-ef429ed9": {
     "decl": "## Cross-references",

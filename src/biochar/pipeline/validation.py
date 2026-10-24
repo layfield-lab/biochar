@@ -67,6 +67,8 @@ class CompositionValidator:
         # Check H/C ratio
         H_C_error_pct = metrics["H_C_error_pct"]
         if H_C_error_pct > H_C_tolerance * 100:
+            # The "H/C ratio" prefix is matched by
+            # BiocharGenerator._h_c_floor_reason to add the unreachable-floor hint.
             errors.append(
                 f"H/C ratio {composition.H_C_ratio:.3f} exceeds tolerance "
                 f"(target: {target_H_C:.3f}, error: {H_C_error_pct:.1f}%)"
