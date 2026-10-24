@@ -433,19 +433,17 @@ class TestDecoratedSheetFallback:
 
     # rq-0cacf78d
     def test_an_undecorated_sheet_is_embedded_once(self, monkeypatch):
-        # Seed 4 has no off-lattice carbon, and its relief leaves two
-        # fjord contacts (issue #66, "Also seen").
+        # Relief is stubbed out so clashes are certain to remain: whether the
+        # real relief clears a given seed differs between RDKit/NumPy builds.
         flags = _spy_embeddings(monkeypatch)
         seen = {}
-        relieve = CoordinateGenerator.relieve_lattice_crowding
 
-        def relieve_spy(self, mol, coords):
-            out = relieve(self, mol, coords)
+        def no_relief(self, mol, coords):
             seen["offlattice"] = self.offlattice_carbons
-            seen["clashes"] = len(_clash_pairs(mol, out))
-            return out
+            seen["clashes"] = len(_clash_pairs(mol, coords))
+            return coords
 
-        monkeypatch.setattr(CoordinateGenerator, "relieve_lattice_crowding", relieve_spy)
+        monkeypatch.setattr(CoordinateGenerator, "relieve_lattice_crowding", no_relief)
         BiocharGenerator(GeneratorConfig(
             target_num_carbons=150, H_C_ratio=0.35, O_C_ratio=0.0, seed=4, strict=False,
         )).generate()
