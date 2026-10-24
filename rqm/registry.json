@@ -1026,18 +1026,6 @@
     "title": "The Direction of Ionization Follows the Kind of Group",
     "type": "section"
   },
-  "rq-340c44e4": {
-    "decl": "Scenario: Hydroxyls at a fjord are relieved",
-    "file": "geometry-embedding",
-    "refs": [
-      {
-        "file": "tests/test_lattice_relief.py",
-        "kind": "code"
-      }
-    ],
-    "title": "Hydroxyls at a fjord are relieved",
-    "type": "scenario"
-  },
   "rq-35a5407d": {
     "decl": "Scenario: Every emitted angle resolves in the forcefield",
     "file": "opls-typing",
@@ -1376,6 +1364,18 @@
     "refs": [],
     "title": "Cross-references",
     "type": "section"
+  },
+  "rq-47354e4f": {
+    "decl": "Scenario: The relaxation is not cut off before it converges",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "The relaxation is not cut off before it converges",
+    "type": "scenario"
   },
   "rq-475641a0": {
     "decl": "- `estimate_box_nm(gro_text, n_copies, loose_factor=1.6) -> float`",

@@ -194,10 +194,12 @@ oxygen lands on the *other* arm's carbon, those two contacts are the deepest, an
 direction on its own before their O···O contact is reached. Such a pair also tries turning its
 second group the other way. Without this the outcome depended on where every hydroxyl hydrogen
 happened to point, since that decides which contacts come first: rotating those hydrogens
-correctly (rq-7515b128) took one sheet from 0 to 115 clashes and another from 74 to 0.
+correctly (rq-7515b128) took one sheet from 0 to 115 clashes and another from 74 to 0 (both
+at 150 C, H/C 0.35, seed 4, measured before #74 stopped the skeleton builder overshooting).
 
 The relaxation is allowed to converge. `LATTICE_RELAX_MAX_ITERATIONS` is a ceiling the minimiser
-usually stops well short of; at 400 it cut descents off with a fjord contact still open.
+usually stops well short of; at 400 it cut descents off with contacts still open (100 C,
+H/C 0.6, seed 1 kept 19 clashes).
 
 A skeleton that is itself malformed — the elongated builder can overshoot its carbon target and
 leave unbonded ring carbons at bond distance — is not repaired here. Relief makes it no worse, but
@@ -261,9 +263,9 @@ Feature: Keep the hex lattice, relieving only what a flat lattice gets wrong
     When lattice crowding is relieved
     Then they turn to opposite sides of the sheet and no longer overlap
 
-  @rq-340c44e4
-  Scenario: Hydroxyls at a fjord are relieved
-    Given a 150-carbon sheet whose fjord carries a hydroxyl on each arm
+  @rq-47354e4f
+  Scenario: The relaxation is not cut off before it converges
+    Given a decorated 100-carbon sheet whose relaxation needs more than 400 iterations
     When the generator finishes geometry
     Then no contact in the structure is a steric clash
 ```

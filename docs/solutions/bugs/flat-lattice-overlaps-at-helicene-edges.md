@@ -203,6 +203,22 @@ total clashes before:
 | Cone + flip (400 its) | 82 | 299 | 0 | 1 (same point: 0 → 1) |
 | **Cone + flip + iterations** | **85** | **206** | **0** | **0** |
 
+**Re-measured after #74.** #74 stopped the elongated skeleton builder from overshooting, which
+removed most of the fjords behind the seed-4 failures above. Those points then pass on main
+without this change, so their regression tests were replaced. On the new main, the same 90-point
+grid goes from 82 clash-free points and 342 clashes to 82 and 284, with bad angles 6 → 0. A second
+grid of decorated, oxygenated sheets (100/150 C × H/C 0.5/0.6 × O/C 0.1/0.2/0.3 × seeds 6–15)
+goes from 119 to 120 clash-free, with bad angles 110 → 0 and no point worse. Both remaining
+changes still matter there. Without the flip, four 150 C, H/C 0.6, O/C 0 sheets keep 8–17 more
+clashes. At 400 iterations, 100 C, H/C 0.6, O/C 0, seed 1 keeps 19 clashes; at 2,000 it keeps none.
+
+One point is worse, and it is a known exception: 100 C, H/C 0.6, O/C 0.3, seed 3 goes from 0
+clashes to 1. The lattice relief fails on this sheet with or without the change, so the generator
+keeps the free embedding. That embedding then ends with one O···H contact 1.43 Å apart, 0.07 Å
+inside the 1.50 Å hydrogen-bond floor. Turning the flip off restores 0 at this point but costs
+the four sheets above. Nothing in the free path's force field is wrong. Hydroxyl start positions
+just select a different local minimum. It fails strict validation by that one contact.
+
 The lesson generalises the one above about the gate: when a local change to the input of a
 multi-stage pipeline moves the outcome a lot, look for a greedy, order-dependent step downstream
 before blaming the change. A greedy choice that is right for most inputs makes the result depend
@@ -218,7 +234,8 @@ on input ordering, so small changes look like they cause large regressions.
   most ~0.1 Å inside the floor. That understated them: at 150 C, H/C 0.35, seeds 2, 3 and 5 failed
   strict on 11–17 clashes up to **0.40 Å** inside it. Fixed in #66: decorated sheets now stay on
   the lattice, with a free embedding kept only when it leaves fewer errors (rq-d6926052).
-- **Heavily decorated, oxygen-free sheets.** Five grid points, all at H/C 0.6 and O/C 0, still keep
-  25–63 clashes after both embeddings: 100 C seeds 2 and 4, 150 C seeds 2–4. The fjord contacts at 150 C, H/C 0.35, seed 4 that this
-  bullet used to describe cleared once the relaxation was allowed to converge (see above).
+- **Heavily decorated sheets.** After #74, seven grid points at H/C 0.6 still keep 16–56 clashes
+  after both embeddings: 100 C, O/C 0, seed 5; 100 C, O/C 0.3, seed 2; and 150 C, O/C 0, seeds 1–5.
+  The fjord contacts at 150 C, H/C 0.35, seed 4 that this bullet used to describe cleared once the
+  relaxation was allowed to converge (see above).
 - **Composition.** 650–800 °C targets below a skeleton's H/C floor are #63.
