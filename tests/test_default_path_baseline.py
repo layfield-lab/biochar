@@ -1,5 +1,5 @@
 """
-Default-path baseline: linked multi-unit structures (rq-PENDING) are opt-in, and
+Default-path baseline: linked multi-unit structures are opt-in (rq-b5d5c316), and
 a request that does not opt in must build exactly what it built before.
 
 The fixture was captured from the generator *before* the linked-unit hooks
@@ -62,6 +62,7 @@ def baseline():
     return json.loads(FIXTURE.read_text())
 
 
+# rq-b5d5c316
 @pytest.mark.parametrize("name", sorted(CASES))
 @pytest.mark.parametrize("seed", SEEDS)
 def test_default_path_matches_pre_change_baseline(baseline, name, seed):

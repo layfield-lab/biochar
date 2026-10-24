@@ -27,6 +27,13 @@ from .heteroatom_assignment import (
     attach_aliphatic_carbons,
     _fix_heteroatom_bond_types,
 )
+from .multi_unit import (
+    LinkedSkeleton,
+    build_linked_skeleton,
+    embed_linked_units,
+    plan_units,
+    unit_bridging_atoms,
+)
 
 
 class ValidationError(Exception):
@@ -221,6 +228,20 @@ class GeneratorConfig:
     # behaviour); no effect when there are no aliphatic carbons.
     allow_aliphatic_oxygen: bool = True
 
+    # Linked multi-unit ("island") structures.  Off by default: every request
+    # that does not set this builds exactly the one fused sheet it always did.
+    # When True, the skeleton is several separate aromatic units joined in a tree
+    # by biaryl bonds, diaryl / aryl-alkyl ethers and propyl bridges, the
+    # architecture of Wood et al. 2024's low-temperature blocks.  The unit count
+    # follows `temperature` (below 500 °C 4-5 units, 500-700 °C 3, 700 °C and
+    # above 1 -- the fused sheet) unless `num_units` sets it; `linker_mix` maps
+    # linker names (biaryl, diaryl_ether, aryl_alkyl_ether, propyl) to relative
+    # weights and otherwise follows the same bands.  See
+    # :mod:`biochar.pipeline.multi_unit` and rqm/linked-units.md.
+    linked_units: bool = False
+    num_units: Optional[int] = None
+    linker_mix: Optional[Dict[str, float]] = None
+
     def __post_init__(self):
         # functional_groups defaults to None → O_C_ratio-driven phenolic placement
         # (no default list here; OxygenAssigner handles the None case)
@@ -233,6 +254,8 @@ class GeneratorConfig:
             raise ValueError(
                 f"charge_method must be 'opls', 'ml', or 'qm', got '{self.charge_method}'"
             )
+
+        self._validate_linked_units()
 
         if self.max_ether_span < 3:
             raise ValueError(
@@ -335,6 +358,42 @@ class GeneratorConfig:
                 self.max_ether_span,
             )
 
+    def _validate_linked_units(self) -> None:
+        if not self.linked_units:
+            # Ignoring these would hand back a fused sheet to a caller who
+            # described a linked one.
+            for name in ("num_units", "linker_mix"):
+                if getattr(self, name) is not None:
+                    raise ValueError(
+                        f"{name} applies only to linked multi-unit structures; "
+                        f"set linked_units=True to use it"
+                    )
+            return
+        from .multi_unit import LINKER_TYPES, MIN_UNIT_CARBONS
+
+        if self.num_units is not None:
+            if isinstance(self.num_units, bool) or not isinstance(self.num_units, int) \
+                    or self.num_units < 1:
+                raise ValueError(f"num_units must be an integer >= 1, got {self.num_units!r}")
+            if self.target_num_carbons < MIN_UNIT_CARBONS * self.num_units:
+                raise ValueError(
+                    f"num_units={self.num_units} needs at least "
+                    f"{MIN_UNIT_CARBONS * self.num_units} carbons (a benzene per unit); "
+                    f"target_num_carbons is {self.target_num_carbons}"
+                )
+        if self.linker_mix is not None:
+            unknown = sorted(set(self.linker_mix) - set(LINKER_TYPES))
+            if unknown:
+                raise ValueError(
+                    f"unknown linker type(s) {unknown}; expected some of {list(LINKER_TYPES)}"
+                )
+            weights = list(self.linker_mix.values())
+            if any(w < 0 for w in weights) or sum(weights) <= 0:
+                raise ValueError(
+                    f"linker_mix weights must be non-negative with a positive sum, "
+                    f"got {self.linker_mix}"
+                )
+
     def to_dict(self) -> dict:
         """Return a JSON-serializable dictionary of this configuration."""
         d = dataclasses.asdict(self)
@@ -372,6 +431,8 @@ class BiocharResult:
     itp_path: Optional[Path]
     ring_composition: Optional[Dict[str, int]] = None
     """Ring-type breakdown of the carbon skeleton, e.g. ``{"hexagons": 14, "pentagons": 2}``."""
+    linked_units: Optional["LinkedSkeleton"] = None
+    """Unit sizes and linker census when ``linked_units=True`` built several units; else None."""
 
     def __iter__(self):
         return iter((self.mol, self.coords, self.gro_path, self.top_path, self.itp_path))
@@ -419,6 +480,8 @@ class BiocharGenerator:
         self.charges = None
         self.validation_report = None
         self.ring_composition: Optional[Dict[str, int]] = None
+        # Census of a linked multi-unit build; None for the fused sheet.
+        self.linked_units: Optional[LinkedSkeleton] = None
 
     # Functional groups whose adjacency to a ring-substituted N is covered by the
     # depth-3 bonded-resolution check (tests/test_opls_type_map.py). That check
@@ -603,11 +666,14 @@ class BiocharGenerator:
         is recoverable from the file: a zero charge is equally consistent with
         pH 2 and with no pH at all.
         """
+        lines = []
+        if self.linked_units is not None:
+            lines.append(f"Linked structure: {self.linked_units.describe()}, seed {self.config.seed}")
         if self.config.pH is None:
-            return []
-        lines = [
+            return lines
+        lines.append(
             f"Protonation sampled at pH {self.config.pH:g}, seed {self.config.seed}"
-        ]
+        )
         counts = getattr(self.composition, "ionized_counts", None)
         if counts:
             placed = ", ".join(f"{g} {n}" for g, n in sorted(counts.items()))
@@ -696,6 +762,17 @@ class BiocharGenerator:
 
     def _generate_carbon_skeleton(self):
         """Generate the carbon skeleton (aromatic core + optional aliphatic C)."""
+        self.linked_units = None
+        if self.config.linked_units:
+            plan = plan_units(self.config, random.Random(self.config.seed))
+            if plan.num_units > 1:
+                r = None if self.config.functional_groups else self.config.H_C_ratio
+                skeleton, self.linked_units = build_linked_skeleton(
+                    self.config, plan, self._aliphatic_enabled(r)
+                )
+                logger.info("Linked skeleton: %s", self.linked_units.describe())
+                return skeleton
+            # One unit is the fused sheet; build it exactly as without the opt-in.
         assembler = PAHAssembler(seed=self.config.seed)
         N = self.config.target_num_carbons
         # Explicit functional groups specify a precise composition and carry
@@ -787,15 +864,18 @@ class BiocharGenerator:
 
     def _assign_oxygens(self, mol: Chem.Mol) -> Tuple[Chem.Mol, CompositionResult]:
         """Assign oxygen atoms. Returns (mol, CompositionResult) with placed/requested counts."""
-        assigner = OxygenAssigner(seed=self.config.seed,
-                                  max_ether_span=self.config.max_ether_span)
-        mol, comp = assigner.assign_oxygens(
-            mol,
-            self.config.O_C_ratio,
-            O_C_tolerance=self.config.O_C_tolerance,
-            functional_group_preference=self.config.functional_groups,
-            allow_aliphatic_oxygen=self.config.allow_aliphatic_oxygen,
-        )
+        if self.linked_units is not None:
+            mol, comp = self._assign_oxygens_linked(mol)
+        else:
+            assigner = OxygenAssigner(seed=self.config.seed,
+                                      max_ether_span=self.config.max_ether_span)
+            mol, comp = assigner.assign_oxygens(
+                mol,
+                self.config.O_C_ratio,
+                O_C_tolerance=self.config.O_C_tolerance,
+                functional_group_preference=self.config.functional_groups,
+                allow_aliphatic_oxygen=self.config.allow_aliphatic_oxygen,
+            )
 
         # Strict mode fails on a shortfall, not only on total failure. Placing 6
         # of 40 requested ether bridges is not the structure the caller asked
@@ -825,6 +905,44 @@ class BiocharGenerator:
                 )
 
         return mol, comp
+
+    # Derived seeds tried when the oxygen stage bridges two linked units.
+    _LINKED_OXYGEN_ATTEMPTS = 5
+
+    def _assign_oxygens_linked(self, mol: Chem.Mol) -> Tuple[Chem.Mol, CompositionResult]:
+        """Oxygen placement on a linked skeleton.
+
+        OxygenAssigner sizes its oxygen count from num_carbons x O_C_ratio and
+        ignores oxygen already present, so the linker oxygens are taken off the
+        target here; the realised O/C, which counts every O, then lands on it.
+        A bridging group placed across two units would merge their ring systems
+        and close a cycle in the unit tree, so such a placement is redrawn on a
+        derived seed.
+        """
+        n_c = sum(1 for a in mol.GetAtoms() if a.GetAtomicNum() == 6)
+        o_c = max(0.0, self.config.O_C_ratio - self.linked_units.num_linker_oxygens / max(n_c, 1))
+        base = 0 if self.config.seed is None else int(self.config.seed)
+        for attempt in range(self._LINKED_OXYGEN_ATTEMPTS):
+            assigner = OxygenAssigner(seed=base + 7919 * attempt,
+                                      max_ether_span=self.config.max_ether_span)
+            out, comp = assigner.assign_oxygens(
+                mol,
+                o_c,
+                O_C_tolerance=self.config.O_C_tolerance,
+                functional_group_preference=self.config.functional_groups,
+                allow_aliphatic_oxygen=self.config.allow_aliphatic_oxygen,
+            )
+            if not unit_bridging_atoms(out):
+                return out, comp
+        message = (
+            "Linked units: every oxygen placement bridged two units (a bridging "
+            "group across a link merges their ring systems); request fewer "
+            "bridging groups or fewer units."
+        )
+        if self.config.strict:
+            raise ValidationError("Strict mode: " + message)
+        logger.warning(message)
+        return out, comp
 
     def _substitute_nitrogens(
         self, mol: Chem.Mol, comp_result: CompositionResult
@@ -916,6 +1034,16 @@ class BiocharGenerator:
 
     def _generate_geometry(self, mol: Chem.Mol) -> Tuple[Chem.Mol, np.ndarray]:
         """Generate 3D coordinates with clash resolution."""
+        if self.linked_units is not None:
+            # Flat-sheet embedding would lay the units out coplanar; the linked
+            # embedder keeps each unit flat and rotates the links.
+            mol, coords = embed_linked_units(mol, seed=self.config.seed)
+            valid, errors = GeometryValidator.validate_geometry(mol, coords)
+            if not valid:
+                print("Warning: Geometry validation issues:")
+                for error in errors[:3]:
+                    print(f"  - {error}")
+            return mol, coords
         generator = CoordinateGenerator(seed=self.config.seed)
         mol, coords = generator.generate_3d_coordinates(
             mol,
@@ -1070,6 +1198,9 @@ def generate_biochar(
     molecule_name: str = "BC",
     seed: Optional[int] = None,
     write_files: bool = True,
+    linked_units: bool = False,
+    num_units: Optional[int] = None,
+    linker_mix: Optional[Dict[str, float]] = None,
 ) -> "BiocharResult":
     """
     Convenience function to generate and export biochar in one call.
@@ -1124,6 +1255,10 @@ def generate_biochar(
             ``.itp`` files to *output_directory*.  Set to ``False`` to skip
             all disk I/O; the path fields on the returned :class:`BiocharResult`
             will be ``None``.
+        linked_units: Build several aromatic units joined by linkers instead
+            of one fused sheet (see :attr:`GeneratorConfig.linked_units`).
+        num_units: Explicit unit count for a linked structure.
+        linker_mix: Relative weights of linker types for a linked structure.
 
     Returns:
         :class:`BiocharResult` with named fields ``mol``, ``coords``,
@@ -1147,6 +1282,9 @@ def generate_biochar(
         feedstock=feedstock,
         molecule_name=molecule_name,
         seed=seed,
+        linked_units=linked_units,
+        num_units=num_units,
+        linker_mix=linker_mix,
     )
     if max_ether_span is not None:
         config_kwargs["max_ether_span"] = max_ether_span
@@ -1171,6 +1309,7 @@ def generate_biochar(
         top_path=top_path,
         itp_path=itp_path,
         ring_composition=generator.ring_composition,
+        linked_units=generator.linked_units,
     )
 
 
