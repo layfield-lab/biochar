@@ -73,6 +73,18 @@
     "title": "The Module Writes Files and Nothing Else",
     "type": "section"
   },
+  "rq-06dfeecf": {
+    "decl": "Scenario: A sheet with pendant methyls takes the hex-lattice path",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A sheet with pendant methyls takes the hex-lattice path",
+    "type": "scenario"
+  },
   "rq-070a2c21": {
     "decl": "Scenario: Pyrrolic nitrogen is still placed where the sites qualify",
     "file": "valence-validation",
@@ -226,6 +238,18 @@
       }
     ],
     "title": "A positive defect fraction produces pentagons",
+    "type": "scenario"
+  },
+  "rq-0cacf78d": {
+    "decl": "Scenario: An undecorated sheet is embedded once",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An undecorated sheet is embedded once",
     "type": "scenario"
   },
   "rq-0cf2e5d4": {
@@ -2614,6 +2638,18 @@
     "title": "The Supplementary Angle Table Is Narrowly Scoped",
     "type": "section"
   },
+  "rq-91985117": {
+    "decl": "Scenario: An off-lattice carbon is tetrahedral and can be tilted",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "An off-lattice carbon is tetrahedral and can be tilted",
+    "type": "scenario"
+  },
   "rq-92c69795": {
     "decl": "## Export",
     "file": "ARCHITECTURE",
@@ -3171,6 +3207,18 @@
       }
     ],
     "title": "The embedding is reproducible",
+    "type": "scenario"
+  },
+  "rq-ab5203c4": {
+    "decl": "Scenario: A decorated sheet the relief cannot clear keeps the better embedding",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A decorated sheet the relief cannot clear keeps the better embedding",
     "type": "scenario"
   },
   "rq-ab986122": {
@@ -3959,6 +4007,18 @@
     "title": "SurfaceConfig",
     "type": "api-item"
   },
+  "rq-d0935f4f": {
+    "decl": "Scenario: Lightly decorated sheets pass strict validation",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Lightly decorated sheets pass strict validation",
+    "type": "scenario"
+  },
   "rq-d32ee60c": {
     "decl": "## A Suppressed grompp Warning Is Named",
     "file": "condensation-annealing",
@@ -4014,6 +4074,19 @@
     ],
     "title": "A failure that is not a validation failure is not retried",
     "type": "scenario"
+  },
+  "rq-d6926052": {
+    "decl": "### A Decorated Sheet Stays on the Lattice",
+    "file": "geometry-embedding",
+    "level": 3,
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A Decorated Sheet Stays on the Lattice",
+    "type": "section"
   },
   "rq-d6aaeb81": {
     "decl": "## Questionable Combinations Warn",

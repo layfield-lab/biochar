@@ -1057,7 +1057,6 @@ class BiocharGenerator:
 
         # Validate and detect clashes
         valid, errors = GeometryValidator.validate_geometry(mol, coords)
-        steric_clashes = [e for e in errors if "Steric clash" in e]
 
         # Resolve clashes if found.
         #
@@ -1075,40 +1074,29 @@ class BiocharGenerator:
             coords = generator.relieve_lattice_crowding(mol, coords)
             valid, errors = GeometryValidator.validate_geometry(mol, coords)
 
-        # The force-field pass is NOT gated on clashes.  A clean clash report
-        # does not mean the embedding is strain-free: ETKDG can leave a
-        # compressed aromatic bond (e.g. 1.16 Å where 1.40 Å is expected) that
-        # only the FF refinement relaxes.  While every high-oxygen structure
-        # carried at least one (false) H-bond "clash", this pass always ran and
-        # the coupling was invisible; once H-bonds stopped being reported as
-        # clashes it would have silently skipped refinement altogether.
-        # Clash *resolution* still runs only when there is a clash to resolve.
-        if not generator.used_hex_lattice:
-            # First pass: iterative clash resolution
-            if steric_clashes:
-                coords = ClashResolver.resolve_clashes(
-                    mol, coords, max_iterations=15, displacement_step=0.15, use_vdw_radii=True
+            # A sheet decorated with off-lattice carbons (methyls, -CH2OH)
+            # can carry a substituent on *both* carbons of a cove: two methyl
+            # carbons ~0.2 Å apart, which a rigid tilt cannot fully clear.  A
+            # free embedding -- every atom movable -- often can, so when the
+            # relief leaves a clash, embed freely too and keep whichever has
+            # fewer geometry errors.  Neither path is better everywhere:
+            # lightly decorated sheets clear on the lattice and not freely
+            # (issue #66), heavily decorated ones the other way round.
+            # Undecorated sheets never take this branch.
+            if generator.offlattice_carbons and any("Steric clash" in e for e in errors):
+                free = CoordinateGenerator(seed=self.config.seed)
+                free_mol, free_coords = free.generate_3d_coordinates(
+                    Chem.Mol(mol), force_aromatic_planarity=True, use_hex_lattice=False,
                 )
-
-            # Second pass: force-field refinement.
-            coords, _ = generator.validate_and_relax(mol, coords, max_iterations=200)
-
-            # Third pass: final clash resolution if needed
-            valid_check, errors_check = GeometryValidator.validate_geometry(mol, coords)
-            steric_clashes_after_ff = [e for e in errors_check if "Steric clash" in e]
-
-            if steric_clashes_after_ff:
-                coords = ClashResolver.resolve_clashes(
-                    mol, coords, max_iterations=10, displacement_step=0.08, use_vdw_radii=True
+                free_coords, free_valid, free_errors = self._refine_free_embedding(
+                    free, free_mol, free_coords
                 )
-                coords, _ = generator.validate_and_relax(mol, coords, max_iterations=200)
-
-            # Final validation
-            valid, errors = GeometryValidator.validate_geometry(mol, coords)
-            if steric_clashes:
-                steric_clashes_after = [e for e in errors if "Steric clash" in e]
-                clashes_resolved = len(steric_clashes) - len(steric_clashes_after)
-                print(f"  Clash resolution: {clashes_resolved}/{len(steric_clashes)} clashes resolved")
+                # validate_geometry stops at the first NaN with a single
+                # error, so a non-finite embedding must not win on count.
+                if np.all(np.isfinite(free_coords)) and len(free_errors) < len(errors):
+                    mol, coords, valid, errors = free_mol, free_coords, free_valid, free_errors
+        else:
+            coords, valid, errors = self._refine_free_embedding(generator, mol, coords)
 
         if not valid:
             print("Warning: Geometry validation issues:")
@@ -1120,6 +1108,50 @@ class BiocharGenerator:
         print(f"  Ring planarity: {assessment} (deviation: {planarity:.3f} Å)")
 
         return mol, coords
+
+    def _refine_free_embedding(
+        self, generator: CoordinateGenerator, mol: Chem.Mol, coords: np.ndarray
+    ) -> Tuple[np.ndarray, bool, List[str]]:
+        """Clash resolution and force-field refinement for an embedding that
+        did not come from the hex lattice; returns ``(coords, valid, errors)``."""
+        valid, errors = GeometryValidator.validate_geometry(mol, coords)
+        steric_clashes = [e for e in errors if "Steric clash" in e]
+
+        # The force-field pass is NOT gated on clashes.  A clean clash report
+        # does not mean the embedding is strain-free: ETKDG can leave a
+        # compressed aromatic bond (e.g. 1.16 Å where 1.40 Å is expected) that
+        # only the FF refinement relaxes.  While every high-oxygen structure
+        # carried at least one (false) H-bond "clash", this pass always ran and
+        # the coupling was invisible; once H-bonds stopped being reported as
+        # clashes it would have silently skipped refinement altogether.
+        # Clash *resolution* still runs only when there is a clash to resolve.
+
+        # First pass: iterative clash resolution
+        if steric_clashes:
+            coords = ClashResolver.resolve_clashes(
+                mol, coords, max_iterations=15, displacement_step=0.15, use_vdw_radii=True
+            )
+
+        # Second pass: force-field refinement.
+        coords, _ = generator.validate_and_relax(mol, coords, max_iterations=200)
+
+        # Third pass: final clash resolution if needed
+        valid_check, errors_check = GeometryValidator.validate_geometry(mol, coords)
+        steric_clashes_after_ff = [e for e in errors_check if "Steric clash" in e]
+
+        if steric_clashes_after_ff:
+            coords = ClashResolver.resolve_clashes(
+                mol, coords, max_iterations=10, displacement_step=0.08, use_vdw_radii=True
+            )
+            coords, _ = generator.validate_and_relax(mol, coords, max_iterations=200)
+
+        # Final validation
+        valid, errors = GeometryValidator.validate_geometry(mol, coords)
+        if steric_clashes:
+            steric_clashes_after = [e for e in errors if "Steric clash" in e]
+            clashes_resolved = len(steric_clashes) - len(steric_clashes_after)
+            print(f"  Clash resolution: {clashes_resolved}/{len(steric_clashes)} clashes resolved")
+        return coords, valid, errors
 
     def _assign_opls_properties(self, mol: Chem.Mol, coords: np.ndarray):
         """Assign OPLS-AA atom types and charges.
