@@ -121,6 +121,37 @@ Feature: Keep the requested size while reaching a high H/C
     Then its total carbon count is no more than ten percent over the request
 ```
 
+## A Target Below the Sheet's Floor Is Named as Unreachable <!-- rq-edccbabe -->
+
+Every edge carbon of an aromatic sheet carries a hydrogen or a group, and only groups without a
+hydrogen pull H/C below the sheet's edge-carbon fraction. So a target below that fraction is out of
+reach at the requested size, whatever is placed on the edge. Temperature mode asks for exactly
+that: 800 °C softwood wants H/C 0.168, and no sheet of 250 carbons or fewer gets there. Strict mode
+failed every such request with only "H/C ratio exceeds tolerance" (issue #63).
+
+The request is not refused before generation, because decoration can sometimes close the gap.
+When the H/C check fails and the target was below the floor, the error names the floor and a size
+that reaches it. That size comes from building compact sheets at growing sizes, not from a scaling
+law, because the N^-1/2 scaling of an ideal flake suggested sizes that still fell short. A
+non-strict run logs the same reason as a warning.
+
+```gherkin
+Feature: Explain an H/C the requested size cannot reach
+
+  @rq-907cd890
+  Scenario: An unreachable H/C names the floor and a size that reaches it
+    Given a target H/C below the edge-carbon fraction of a sheet of the requested size
+    When a structure is generated in strict mode and fails the H/C check
+    Then the error names the floor
+    And it names a target_num_carbons whose compact sheet reaches the target
+
+  @rq-ef032605
+  Scenario: A reachable temperature-mode target passes strict validation
+    Given a temperature and feedstock whose H/C a sheet of the requested size can reach
+    When a structure is generated in strict mode across several seeds
+    Then validation passes
+```
+
 ## Impossible Requests Are Refused at Construction <!-- rq-31553668 -->
 
 Some requests cannot produce a structure at all. Those raise from `GeneratorConfig(...)`, before

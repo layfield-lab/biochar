@@ -221,6 +221,33 @@ Feature: Retry a seed-dependent failure
     Then the two lists have no sub-seed in common
 ```
 
+## An Elongated Build Lands Near Its H/C Target <!-- rq-184038fe -->
+
+When `target_h_c` is above what a compact sheet of the requested size carries, growth is
+elongated to raise the share of edge carbons, which is the H/C ceiling. How far to elongate is a
+search, not a formula: the edge fraction falls as growth becomes more compact, but noisily, and two
+builds at nearly the same setting can differ by a tenth.
+
+The search used to try one setting and stop at the first build at or above the target. Builds
+overshot by 6–24% (250 carbons asked 0.414 and got 0.512), and 500 °C temperature-mode requests
+failed strict H/C on most seeds at 150–250 carbons (issue #63). It now bisects toward the target,
+retries a build that cannot be kekulized on another sub-seed, and keeps the closest. On a grid of
+100–400 carbons and targets 0.30–0.50, misses beyond 10% fell from 69 of 130 to 7.
+
+Elongated sheets also lose their coves as they grow, so one that closes with an odd carbon count
+usually has no odd-adding fusion left. Near the target, an odd elongated sheet takes a cove while
+one exists.
+
+```gherkin
+Feature: Elongate toward the requested H/C, not past it
+
+  @rq-d56e008e
+  Scenario: An elongated skeleton lands within ten percent of a reachable target
+    Given targets of 150 to 272 carbons and a target H/C above the compact ceiling
+    When skeletons are generated across several seeds
+    Then each skeleton's edge-carbon fraction is within ten percent of the target
+```
+
 ## A Curved Sheet Is Chemically Possible and Cheap to Perceive <!-- rq-2d15a0c0 -->
 
 Pentagons and heptagons do not tile the plane, so once two growth fronts meet around a defect their

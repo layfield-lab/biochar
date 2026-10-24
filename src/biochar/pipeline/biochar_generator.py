@@ -6,6 +6,7 @@ Main API for generating biochar building blocks for GROMACS simulations.
 
 import dataclasses
 import logging
+import math
 import random
 from typing import Callable, Optional, Tuple, List, Dict
 from dataclasses import dataclass
@@ -17,7 +18,12 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-from .carbon_skeleton import PAHAssembler, SkeletonValidator, _edge_carbon_fraction
+from .carbon_skeleton import (
+    PAHAssembler,
+    SkeletonError,
+    SkeletonValidator,
+    _edge_carbon_fraction,
+)
 from .heteroatom_assignment import (
     OxygenAssigner,
     NitrogenSubstitutor,
@@ -41,6 +47,11 @@ from ..constants import MIN_BUILDABLE_AROMATICITY
 # _generate_carbon_skeleton). Each re-plans from the ceiling of the core just
 # built; two or three usually agree, and the closest-to-target build is kept.
 _CORE_SPLIT_ITERATIONS = 4
+
+# Size search behind the "unreachable H/C" hint (_h_c_floor_reason): each step
+# grows the sheet by a quarter, so 2000 carbons is ~10 compact builds from 100.
+_FLOOR_SEARCH_GROWTH = 1.25
+_FLOOR_SEARCH_MAX_CARBONS = 2000
 
 
 @dataclass
@@ -417,6 +428,9 @@ class BiocharGenerator:
                 defaults if ``None``.
         """
         self.config = config or GeneratorConfig()
+        # Lowest H/C the built aromatic sheet can carry, set when the request
+        # is below it (see _generate_carbon_skeleton); None otherwise.
+        self._h_c_floor: Optional[float] = None
         self.mol = None
         self.coords = None
         self.composition = None
@@ -717,6 +731,15 @@ class BiocharGenerator:
             heptagon_fraction=self.config.heptagon_fraction,
             target_h_c=r,
         )
+
+        # A target below the sheet's edge-carbon fraction may be out of reach
+        # at this size: each edge carbon carries a hydrogen or a group, and
+        # only groups without a hydrogen (an ether bridge) pull H/C lower.
+        # Recorded rather than refused, since decoration can still get there;
+        # _validate names it if the H/C check then fails (issue #63).
+        if r is not None:
+            edge = _edge_carbon_fraction(skeleton.mol)
+            self._h_c_floor = edge if r < edge else None
 
         # If the requested H/C still exceeds what this (already elongated)
         # aromatic flake can carry, rebuild a smaller aromatic core and decorate
@@ -1075,15 +1098,61 @@ class BiocharGenerator:
 
         if not is_valid:
             logger.error("Validation FAILED with %d error(s): %s", len(errors), "; ".join(errors))
+            reason = self._h_c_floor_reason(composition, errors)
+            if reason:
+                logger.warning(reason)
             if self.config.strict:
                 raise ValidationError(
                     f"Strict mode: structure failed validation with "
                     f"{len(errors)} error(s): " + "; ".join(errors)
+                    + (f". {reason}" if reason else "")
                 )
         else:
             logger.info("Validation PASSED")
             if warnings:
                 logger.warning("%d validation warning(s): %s", len(warnings), "; ".join(warnings))
+
+    def _h_c_floor_reason(
+        self, composition: CompositionResult, errors: List[str]
+    ) -> Optional[str]:
+        """Why an H/C miss happened, when the target was below the sheet's floor.
+
+        The H/C check alone says only that the ratio missed. When the request
+        sat below what any sheet of this size carries, the useful answer is the
+        floor and a size that would reach it. The size is measured, not
+        extrapolated: the N^-1/2 edge scaling of an ideal flake suggested 300
+        carbons for 800 °C softwood where 300-carbon sheets still sit at
+        0.19-0.23. Compact sheets are built at growing sizes (this runs only
+        on the failure path) until one reaches the tolerance band.
+        """
+        floor = self._h_c_floor
+        target = self.config.H_C_ratio
+        if (floor is None or target is None or composition.H_C_ratio <= target
+                or not any(e.startswith("H/C ratio") for e in errors)):
+            return None
+        n = self.config.target_num_carbons
+        reason = (
+            f"The target H/C {target:.3f} is below the lowest H/C a "
+            f"{n}-carbon aromatic sheet carries ({floor:.3f}): every edge carbon "
+            f"holds a hydrogen or a group, so this size cannot reach it."
+        )
+        reachable = target * (1.0 + self.config.H_C_tolerance)
+        size = n
+        while size < _FLOOR_SEARCH_MAX_CARBONS:
+            size = int(math.ceil(size * _FLOOR_SEARCH_GROWTH / 10.0) * 10)
+            try:
+                sheet = PAHAssembler(seed=self.config.seed).generate(
+                    size,
+                    defect_fraction=self.config.defect_fraction,
+                    heptagon_fraction=self.config.heptagon_fraction,
+                )
+            except SkeletonError:
+                continue
+            if _edge_carbon_fraction(sheet.mol) <= reachable:
+                return reason + f" A compact sheet of target_num_carbons={size} reaches it."
+        return reason + (
+            f" No compact sheet up to {_FLOOR_SEARCH_MAX_CARBONS} carbons reaches it."
+        )
 
 
 def generate_biochar(

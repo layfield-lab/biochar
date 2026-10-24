@@ -213,6 +213,40 @@ class TestEndToEnd:
         assert mol.GetNumAtoms() > 0
 
 
+class TestStrictTemperatureMode:
+    """Issue #63: strict temperature-mode builds failed on H/C with no reason given.
+
+    Both end-to-end tests above pass strict=False, which is how the failure went
+    unnoticed.
+    """
+
+    # rq-ef032605
+    @pytest.mark.slow
+    @pytest.mark.parametrize("seed", [1, 2, 3])
+    def test_a_reachable_target_passes_strict(self, seed):
+        # 500 °C softwood asks H/C 0.414, above a compact 250-carbon sheet's
+        # ceiling (~0.22) but within elongated growth's reach. It failed on every
+        # seed: elongation overshot to 0.512.
+        c = GeneratorConfig(target_num_carbons=250, temperature=500,
+                            feedstock="softwood", seed=seed)
+        mol, coords, comp = BiocharGenerator(c).generate()
+        assert abs(comp.H_C_ratio - c.H_C_ratio) <= c.H_C_tolerance * c.H_C_ratio
+
+    # rq-907cd890
+    def test_an_unreachable_target_names_the_floor_and_a_size(self):
+        from biochar.pipeline.biochar_generator import ValidationError
+
+        # 800 °C softwood asks H/C 0.168; a 100-carbon sheet has ~0.3 of its
+        # carbons on the edge, each carrying a hydrogen or a group.
+        c = GeneratorConfig(target_num_carbons=100, temperature=800,
+                            feedstock="softwood", seed=1)
+        with pytest.raises(ValidationError) as exc:
+            BiocharGenerator(c).generate()
+        message = str(exc.value)
+        assert "below the lowest H/C" in message, message
+        assert "target_num_carbons=" in message, message
+
+
 class TestBuildHelpers:
     def test_model_artifact_loads(self):
         m = TemperatureModel()
