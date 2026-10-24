@@ -91,6 +91,28 @@ odd sheet grew hexagon by hexagon until a cove (three new carbons) happened to r
 for 150, 400 and 628 carbons returned 228, 936 and 1680, without complaint. The parity step now
 fuses only where the addition is odd, or leaves the sheet odd for a retry.
 
+The same runaway was behind issue #65. Elongated growth (`target_h_c` above the compact ceiling)
+returned sheets up to 55% over the request. The extra hexagons wrapped around until the sheet met
+itself, leaving pairs of ring carbons at bond distance on the lattice with no bond between them,
+which no later relaxation can pull apart. Both are now held as invariants, for the elongated build
+as much as the compact one.
+
+```gherkin
+Feature: Elongated growth honors the size and the lattice
+
+  @rq-5e74710c
+  Scenario: An elongated skeleton stays within a ring or two of the request
+    Given targets from 100 to 250 carbons and target H/C values above the compact ceiling
+    When skeletons are generated across several seeds
+    Then none exceeds its target by more than eight carbons
+
+  @rq-20d8d5ea
+  Scenario: No two lattice carbons sit at bond distance without a bond
+    Given targets from 100 to 250 carbons, with and without a target H/C
+    When skeletons are generated across several seeds
+    Then every pair of carbons closer than 1.6 Å on the lattice is bonded
+```
+
 ## Defect Fractions Are Per-Ring Probabilities <!-- rq-9c8fe79c -->
 
 `defect_fraction` and `heptagon_fraction` are the probability that **any one ring added during

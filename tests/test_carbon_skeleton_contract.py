@@ -84,6 +84,44 @@ class TestOddSheetsDoNotRunAway:
         )
 
 
+class TestElongatedGrowth:
+    """Issue #65: elongated growth returned sheets up to 55% oversized that had
+    wrapped onto themselves, leaving unbonded lattice carbons at bond distance.
+    On main this grid failed 18 of 90 cases."""
+
+    GRID = [(n, h) for n in (100, 150, 200, 250) for h in (0.35, 0.45, 0.6)]
+
+    # rq-5e74710c
+    @pytest.mark.parametrize("target,target_h_c", GRID)
+    def test_an_elongated_skeleton_stays_within_a_ring_or_two(self, target, target_h_c):
+        for seed in range(1, 7):
+            skeleton = PAHAssembler(seed=seed).generate(target, target_h_c=target_h_c)
+            over = _carbons(skeleton) - target
+            assert 0 <= over <= 8, (
+                f"seed {seed}: requested {target} carbons at H/C {target_h_c}, "
+                f"got {_carbons(skeleton)}"
+            )
+
+    # rq-20d8d5ea
+    @pytest.mark.parametrize("target,target_h_c", GRID + [(200, None), (250, None)])
+    def test_no_lattice_carbons_at_bond_distance_without_a_bond(self, target, target_h_c):
+        import numpy as np
+
+        for seed in range(1, 7):
+            mol = PAHAssembler(seed=seed).generate(target, target_h_c=target_h_c).mol
+            xy = np.array([[a.GetDoubleProp("init_x"), a.GetDoubleProp("init_y")]
+                           for a in mol.GetAtoms()])
+            d = np.linalg.norm(xy[:, None, :] - xy[None, :, :], axis=-1)
+            bonded = {frozenset((b.GetBeginAtomIdx(), b.GetEndAtomIdx()))
+                      for b in mol.GetBonds()}
+            close = [(i, j) for i, j in zip(*np.nonzero(np.triu(d < 1.6, k=1)))
+                     if frozenset((int(i), int(j))) not in bonded]
+            assert not close, (
+                f"seed {seed}, {target} C, H/C {target_h_c}: {len(close)} unbonded "
+                f"carbon pairs under 1.6 Å -- the sheet wrapped onto itself"
+            )
+
+
 class TestSeedDependentFailuresAreRetried:
     # rq-a3c395ed
     def test_a_growth_that_fails_on_the_callers_seed_is_retried(self):
