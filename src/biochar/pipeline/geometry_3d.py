@@ -562,8 +562,8 @@ def _optimize_h_positions(
     num_passes: int = 2,
 ) -> np.ndarray:
     """
-    Rotate hydroxyl (O-H) hydrogens to minimise steric clashes, optionally
-    lifting them out of the aromatic plane.
+    Rotate hydroxyl (O-H) hydrogens about their X-O bond to minimise steric
+    clashes, optionally turning them out of the aromatic plane.
 
     **Scope**: Only H atoms bonded to a heteroatom (O, N, S …) are touched.
     Aromatic C-H bonds are geometrically locked in the sp2 ring plane —
@@ -573,10 +573,10 @@ def _optimize_h_positions(
 
     For each eligible H whose nearest non-bonded neighbour is closer than
     *threshold* Å, the H is swept through *num_angles* equally-spaced dihedral
-    angles around the grandparent→parent bond axis (e.g. C–O for phenolic OH).
-    When *allow_out_of_plane* is True, positions at z-offsets ±0.3, ±0.6,
-    and ±0.9 Å above/below the sheet are also sampled.  The position that
-    maximises the minimum non-bonded distance is kept.
+    angles around the grandparent→parent bond axis (e.g. C–O for phenolic OH),
+    which keeps both the bond length and the X–O–H angle.  When
+    *allow_out_of_plane* is False only the two in-plane dihedrals are tried.
+    The position that maximises the minimum non-bonded distance is kept.
 
     *num_passes* sweeps are performed (default 2) so that moving H_i updates
     the environment seen by H_j before H_j is evaluated.
@@ -586,8 +586,8 @@ def _optimize_h_positions(
         all_coords:        (N, 3) coordinate array in Å — **modified in place**.
         threshold:         Nearest non-bonded contact (Å) that triggers
                            optimisation.  Default 1.8 Å.
-        num_angles:        In-plane dihedral samples (default 12 → every 30°).
-        allow_out_of_plane: Sample z ≠ 0 positions (default True).
+        num_angles:        Dihedral samples (default 12 → every 30°).
+        allow_out_of_plane: Sample dihedrals that leave the plane (default True).
         num_passes:        Full sweeps over eligible H atoms (default 2).
 
     Returns:
@@ -609,12 +609,10 @@ def _optimize_h_positions(
                 min_d = d
         return min_d
 
-    # Out-of-plane z-offsets (Å): 0 = flat (in-plane); ±Δz = above/below sheet.
-    z_offsets: List[float] = [0.0]
-    if allow_out_of_plane:
-        z_offsets += [0.3, -0.3, 0.6, -0.6, 0.9, -0.9]
-
     angles = np.linspace(0.0, 2.0 * np.pi, num_angles, endpoint=False)
+    if not allow_out_of_plane:
+        # On a flat layout the in-plane positions are the two dihedrals 0 and π.
+        angles = np.array([0.0, np.pi])
 
     for _pass in range(num_passes):
         for atom in mol.GetAtoms():
@@ -680,22 +678,18 @@ def _optimize_h_positions(
             best_pos = h_pos.copy()
             best_d = _min_nb_dist(h_idx, h_pos)
 
-            for z_off in z_offsets:
-                z_vec = np.array([0.0, 0.0, z_off])
-                for theta in angles:
-                    new_perp = perp_norm * (
-                        np.cos(theta) * u_hat + np.sin(theta) * v_hat
-                    )
-                    candidate = par_pos + h_par + new_perp + z_vec
-                    # Rescale to the original O-H / C-H bond length
-                    cv = candidate - par_pos
-                    cv_norm = float(np.linalg.norm(cv))
-                    if cv_norm > 1e-8:
-                        candidate = par_pos + cv * (bl / cv_norm)
-                    d = _min_nb_dist(h_idx, candidate)
-                    if d > best_d:
-                        best_d = d
-                        best_pos = candidate.copy()
+            # Every candidate is a rotation about the axis, so it keeps the
+            # bond length and the X-O-H angle (rq-7515b128). Translating a
+            # candidate off this cone and rescaling only the bond -- what a
+            # z offset did -- bent the angle anywhere from 95 to 178 degrees.
+            for theta in angles:
+                candidate = par_pos + h_par + perp_norm * (
+                    np.cos(theta) * u_hat + np.sin(theta) * v_hat
+                )
+                d = _min_nb_dist(h_idx, candidate)
+                if d > best_d:
+                    best_d = d
+                    best_pos = candidate
 
             all_coords[h_idx] = best_pos
 
@@ -824,16 +818,29 @@ def _tilt_crowded_substituents(mol: Chem.Mol, coords: np.ndarray) -> np.ndarray:
                 if anchor not in direction:
                     partner = [direction[m] for m in movers if m in direction]
                     direction[anchor] = -partner[0] if partner else (1.0 if k == 0 else -1.0)
+            # Directions are handed out greedily, deepest contact first, so two
+            # groups crowding each other can arrive already sharing one -- both
+            # tilt the same way and never separate. Which pairs get there first
+            # depends on where every hydroxyl hydrogen happens to point, which
+            # made the whole relief hostage to them. Such a pair also tries
+            # turning its second group the other way.
+            options = [dict(direction)]
+            if len(movers) == 2 and direction[movers[0]] == direction[movers[1]]:
+                options.append({**direction, movers[1]: -direction[movers[1]]})
             start = {anchor: angle.get(anchor, 0.0) for anchor in movers}
-            best = (worst_overlap(atoms), dict(start))
-            for step in steps:
-                for anchor in movers:
-                    set_tilt(anchor, direction[anchor] * max(step, abs(start[anchor])))
-                overlap = worst_overlap(atoms)
-                if overlap < best[0]:
-                    best = (overlap, {anchor: angle[anchor] for anchor in movers})
-                if overlap < 0:
+            best = (worst_overlap(atoms), dict(start), direction)
+            for option in options:
+                for step in steps:
+                    for anchor in movers:
+                        set_tilt(anchor, option[anchor] * max(step, abs(start[anchor])))
+                    overlap = worst_overlap(atoms)
+                    if overlap < best[0]:
+                        best = (overlap, {anchor: angle[anchor] for anchor in movers}, option)
+                    if overlap < 0:
+                        break
+                if best[0] < 0:
                     break
+            direction = best[2]
             for anchor, a in best[1].items():
                 set_tilt(anchor, a)
     return coords

@@ -1207,6 +1207,18 @@
     "title": "The map holds no entries for types that do not exist",
     "type": "scenario"
   },
+  "rq-3e250d24": {
+    "decl": "Scenario: A crowded hydroxyl keeps its angle when it is moved",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "A crowded hydroxyl keeps its angle when it is moved",
+    "type": "scenario"
+  },
   "rq-3f012547": {
     "decl": "## A Larger Target Is Reached From Above, Never From Below",
     "file": "carbon-skeleton",
@@ -1352,6 +1364,18 @@
     "refs": [],
     "title": "Cross-references",
     "type": "section"
+  },
+  "rq-47354e4f": {
+    "decl": "Scenario: The relaxation is not cut off before it converges",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "The relaxation is not cut off before it converges",
+    "type": "scenario"
   },
   "rq-475641a0": {
     "decl": "- `estimate_box_nm(gro_text, n_copies, loose_factor=1.6) -> float`",
@@ -2245,6 +2269,10 @@
     "level": 3,
     "refs": [
       {
+        "file": "src/biochar/pipeline/geometry_3d.py",
+        "kind": "code"
+      },
+      {
         "file": "tests/test_lattice_relief.py",
         "kind": "code"
       }
@@ -2381,6 +2409,18 @@
     "refs": [],
     "title": "The Annealing Schedule Is the Published One",
     "type": "section"
+  },
+  "rq-7cab77bd": {
+    "decl": "Scenario: Two groups crowding each other tilt opposite ways",
+    "file": "geometry-embedding",
+    "refs": [
+      {
+        "file": "tests/test_lattice_relief.py",
+        "kind": "code"
+      }
+    ],
+    "title": "Two groups crowding each other tilt opposite ways",
+    "type": "scenario"
   },
   "rq-7cee9ec6": {
     "decl": "## Unit Count and Linkers Follow Temperature",
