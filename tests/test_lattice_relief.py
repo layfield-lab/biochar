@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from rdkit import Chem
+from rdkit.Chem import AllChem
 
 import biochar.pipeline.geometry_3d as geometry_3d
 from biochar.constants import LATTICE_MAX_SHEET_RMS
@@ -490,14 +491,43 @@ def _fjord_hydroxyls():
 class TestReliefDoesNotDependOnHydroxylHydrogens:
     # rq-8e5f5dc1 -- relief must not hinge on where hydroxyl hydrogens point.
     # rq-47354e4f -- the tethered UFF was cut off at 400 iterations with
-    # contacts still open; this sheet kept 19 clashes then and clears now.
-    @pytest.mark.slow
-    def test_the_relaxation_runs_to_convergence(self, monkeypatch):
-        mol, coords, _comp = _generate_on_hex_lattice(
-            monkeypatch, target_num_carbons=100, H_C_ratio=0.6, O_C_ratio=0.0,
-            seed=1, strict=False,
+    # contacts still open. Checked as convergence rather than as a clash-free
+    # generated structure: whether the relief clears a given seed differs
+    # between RDKit/NumPy builds (on CI's, 100 C, H/C 0.6, seed 1 keeps its
+    # clashes either way), but whether the minimiser is allowed to finish does
+    # not. This fixture needs ~900-1200 iterations.
+    @pytest.mark.parametrize("z_seed", [0, 1, 2])
+    def test_the_relaxation_runs_to_convergence(self, monkeypatch, z_seed):
+        mol, coords = CoordinateGenerator(seed=0).generate_3d_coordinates(
+            _methyl_decorated_sheet()
         )
-        assert _clash_pairs(mol, coords) == []
+        tilted = _tilt_crowded_substituents(mol, coords)
+        assert _clash_pairs(mol, tilted), "fixture must leave the relaxation work to do"
+
+        results = []
+        build = AllChem.UFFGetMoleculeForceField
+
+        def spy(*args, **kwargs):
+            ff = build(*args, **kwargs)
+            minimize = ff.Minimize
+
+            def recorded(*a, **kw):
+                results.append(minimize(*a, **kw))
+                return results[-1]
+
+            ff.Minimize = recorded
+            return ff
+
+        monkeypatch.setattr(AllChem, "UFFGetMoleculeForceField", spy)
+        monkeypatch.setattr(geometry_3d, "LATTICE_RELAX_MAX_ITERATIONS", 400)
+        geometry_3d._tethered_lattice_relax(mol, tilted, z_seed)
+        monkeypatch.undo()
+        assert results == [1], "premise: 400 iterations must not be enough here"
+
+        monkeypatch.setattr(AllChem, "UFFGetMoleculeForceField", spy)
+        results.clear()
+        geometry_3d._tethered_lattice_relax(mol, tilted, z_seed)
+        assert results == [0]  # RDKit: 0 = converged, 1 = ran out of iterations
 
     # rq-7cab77bd
     def test_groups_sharing_a_tilt_direction_still_separate(self):

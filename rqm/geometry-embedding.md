@@ -198,8 +198,8 @@ correctly (rq-7515b128) took one sheet from 0 to 115 clashes and another from 74
 at 150 C, H/C 0.35, seed 4, measured before #74 stopped the skeleton builder overshooting).
 
 The relaxation is allowed to converge. `LATTICE_RELAX_MAX_ITERATIONS` is a ceiling the minimiser
-usually stops well short of; at 400 it cut descents off with contacts still open (100 C,
-H/C 0.6, seed 1 kept 19 clashes).
+usually stops well short of; at 400 it cut descents off with contacts still open. A
+methyl-decorated 100-carbon sheet needs about 900–1,200 iterations.
 
 A skeleton that is itself malformed — the elongated builder can overshoot its carbon target and
 leave unbonded ring carbons at bond distance — is not repaired here. Relief makes it no worse, but
@@ -265,9 +265,9 @@ Feature: Keep the hex lattice, relieving only what a flat lattice gets wrong
 
   @rq-47354e4f
   Scenario: The relaxation is not cut off before it converges
-    Given a decorated 100-carbon sheet whose relaxation needs more than 400 iterations
-    When the generator finishes geometry
-    Then no contact in the structure is a steric clash
+    Given a decorated sheet whose tethered relaxation needs more than 400 iterations
+    When the relaxation runs
+    Then the minimiser reports convergence rather than running out of iterations
 ```
 
 ### A Decorated Sheet Stays on the Lattice <!-- rq-d6926052 -->

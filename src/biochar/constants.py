@@ -669,8 +669,8 @@ LATTICE_TETHER_FORCE_CONSTANT = 10.0
 LATTICE_BOND_RANGE = (1.40, 1.42)  # Angstroms
 LATTICE_BOND_FORCE_CONSTANT = 20000.0
 # The minimiser stops early once converged, so this is a ceiling, not a cost.
-# At 400 it was routinely cut off mid-descent: 100 C, H/C 0.6, O/C 0, seed 1
-# kept 19 clashes at 400 and clears at 2000.
+# At 400 it was routinely cut off mid-descent; a methyl-decorated 100 C sheet
+# needs ~900-1200 iterations to converge.
 LATTICE_RELAX_MAX_ITERATIONS = 2000
 
 # Largest RMS deviation (Å) of the ring atoms from their best-fit plane that a
